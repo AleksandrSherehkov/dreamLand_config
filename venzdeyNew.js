@@ -42,6 +42,8 @@
       lastCast: '',
       doorToBash: 'n',
       weapon: 'warhammer',
+      foodItem: 'манна',
+      sleepItem: 'кресло',
       isActionLocked: false, // Для предотвращения спама действий
       isLooting: false, // Флаг для отслеживания процесса лутания
     },
@@ -78,7 +80,7 @@
     },
     'Ты хочешь есть.': () => {
       console.log('>>> Сейчас бы шашлычка...\n');
-      sendCommand('колдов сотворить пищу |есть ман');
+      sendCommand(`колдов сотворить пищу |есть ${general.foodItem}`);
     },
     'Ты хочешь пить.': () => {
       console.log('>>> Сейчас бы вискарика...\n');
@@ -95,7 +97,7 @@
     training.isStarPressed = false; // Немедленно останавливаем цикл
     energy.isLow = true; // Устанавливаем флаг низкой энергии
     sendCommand('\\'); // Очищаем буфер команд
-    sendCommand('спать кресл');
+    sendCommand(`спать ${general.sleepItem}`); //
 
     delayedSendCommand('вст', 25000); // Через 25 секунд встаем
 
