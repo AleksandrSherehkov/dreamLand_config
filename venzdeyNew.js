@@ -15,9 +15,9 @@
   const state = {
     hunting: {
       isActive: false, // Флаг для отслеживания процесса охоты
-      attackCommand: 'к вред',
-      victim: 'ханжа',
-      lootItem: 'doubt',
+      attackCommand: 'к стен',
+      victim: 'музыкант',
+      lootItem: 'string',
       victimLocation: '', // Местоположение жертвы
       isVictimLocationFound: false, // Флаг, что местоположение жертвы найдено
       isLocationCodeFound: false, // Флаг, что код местности найден
@@ -439,7 +439,8 @@
     { prop: 'det', value: 'i', command: 'c detect invis' },
     { prop: 'trv', value: 'i', command: 'c invisibility' },
     { prop: 'pro', value: 's', command: 'к аура' },
-    { prop: 'enh', value: 'B', command: 'к благословение' },
+    { prop: 'enh', value: 'b', command: 'к благословение' },
+    { prop: 'enh', value: 'B', command: 'к благость' },
     { prop: 'trv', value: 'f', command: 'к полет' },
     { prop: 'pro', value: 'S', command: 'c shield' },
     { prop: 'enh', value: 'l', command: 'c learning' },
@@ -491,7 +492,16 @@
         break;
       case 9: {
         // Tab
-        const commands = ['гиг', 'аура', 'неи', 'щит', 'брон', 'благ', 'обуч'];
+        const commands = [
+          'гиг',
+          'аура',
+          'неи',
+          'щит',
+          'брон',
+          'благ',
+          'полет',
+          'благость',
+        ];
         const targets = ['д'];
         // const commands = ['гиг', 'ускор', 'зв'];
         // const targets = ['д', '1.гол', '2.гол', '3.гол'];
