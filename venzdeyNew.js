@@ -6,7 +6,7 @@
 
 (() => {
   /*--------------------------------------------------------------------------
-   * Триггеры - автоматические действия в ответ на определенные строки в игре.
+   * Триггеры и автоматизация для MUD-игры.
    *-------------------------------------------------------------------------*/
 
   const DEBUG_MODE = true; // true - для вывода отладочной информации
@@ -15,9 +15,9 @@
   const state = {
     hunting: {
       isActive: false, // Флаг для отслеживания процесса охоты
-      attackCommand: 'к стен',
-      victim: 'музыкант',
-      lootItem: 'string',
+      attackCommand: 'к вред',
+      victim: 'скрипач',
+      lootItem: 'broken',
       victimLocation: '', // Местоположение жертвы
       isVictimLocationFound: false, // Флаг, что местоположение жертвы найдено
       isLocationCodeFound: false, // Флаг, что код местности найден
@@ -28,7 +28,7 @@
     },
     training: {
       isActive: false, // Переменная для отслеживания процесса обучения
-      skillToTrain: 'к мент блок',
+      skillToTrain: 'к ул броня',
       skillCount: 0, // Счетчик выполнения навыка
       maxSkillCount: 98, // Максимальное количество повторений
       isMasteryAchieved: false, // Флаг для отслеживания достижения "мастерски владеешь"
@@ -41,7 +41,7 @@
       meltCounter: 0, // Противодействие автовыкидыванию
       lastCast: '',
       doorToBash: 'n',
-      weapon: 'warhammer',
+      weapon: 'vainglory',
       foodItem: 'манна',
       sleepItem: 'кресло',
       isActionLocked: false, // Для предотвращения спама действий
@@ -60,38 +60,47 @@
 
   // Универсальная функция для отправки команд
   const sendCommand = command => {
-    logDebug(`Sending command: ${command}`);
+    logDebug(`Отправляю команду: ${command}`);
     send(command);
   };
 
   // Универсальная функция для отправки команды с задержкой
   const delayedSendCommand = (command, delay) => {
-    logDebug(`Delaying command: ${command} for ${delay}ms`);
-    setTimeout(() => {
-      sendCommand(command);
-    }, delay);
+    logDebug(`Отложенная команда: ${command} через ${delay} мс`);
+    setTimeout(() => sendCommand(command), delay);
   };
 
-  const triggers = {
-    'ВЫБИЛ.? у тебя .*, и он.? пада.?т .*!': () => {
-      console.log('>>> Подбираю оружие с пола, очищаю буфер команд.\n');
-      sendCommand('\\');
-      sendCommand(`взять ${general.weapon}|надеть ${general.weapon}`);
+  // Триггеры с предкомпилированными регулярными выражениями
+  const triggers = [
+    {
+      pattern: /ВЫБИЛ.? у тебя .*, и он.? пада.?т .*!/,
+      action: () => {
+        console.log('>>> Подбираю оружие с пола, очищаю буфер команд.\n');
+        sendCommand('\\');
+        sendCommand(`взять ${general.weapon}|надеть ${general.weapon}`);
+      },
     },
-    'Ты хочешь есть.': () => {
-      console.log('>>> Сейчас бы шашлычка...\n');
-      sendCommand(`колдов сотворить пищу |есть ${general.foodItem}`);
+    {
+      pattern: /Ты хочешь есть\./,
+      action: () => {
+        console.log('>>> Сейчас бы шашлычка...\n');
+        sendCommand(`колдов сотворить пищу |есть ${general.foodItem}`);
+      },
     },
-    'Ты хочешь пить.': () => {
-      console.log('>>> Сейчас бы вискарика...\n');
-      sendCommand('колдов родн |пить род');
+    {
+      pattern: /Ты хочешь пить\./,
+      action: () => {
+        console.log('>>> Сейчас бы вискарика...\n');
+        sendCommand('колдов родн |пить род');
+      },
     },
-    'У тебя не хватает энергии': () => {
-      handleLowEnergy();
+    {
+      pattern: /У тебя не хватает энергии/,
+      action: handleLowEnergy,
     },
-  };
+  ];
 
-  const handleLowEnergy = () => {
+  function handleLowEnergy() {
     console.log('>>> Энергии не хватает, засыпаю...\n');
     training.skillCount = 0;
     training.isStarPressed = false; // Немедленно останавливаем цикл
@@ -107,22 +116,21 @@
       sendCommand(training.skillToTrain); // Повторно вызываем команду
       checkMasteryAndRepeat(''); // Возобновляем проверку мастерства
     }, 26000); // Задержка после отдыха
-  };
+  }
 
   // Проверка на "мастерски владеешь" и запуск цикла повторения до выполнения
-  const checkMasteryAndRepeat = text => {
-    if (general.isActionLocked) return; // Не увеличиваем счетчик, если действие заблокировано
-    logDebug(`Функция checkMasteryAndRepeat вызвана с текстом: ${text}`);
+  function checkMasteryAndRepeat(text) {
+    if (general.isActionLocked || !training.isStarPressed) return;
 
-    if (!training.isStarPressed) return; // Не выполнять цикл, если * не нажата
+    logDebug(`Функция checkMasteryAndRepeat вызвана с текстом: ${text}`);
 
     if (text.includes('мастерски владеешь')) {
       sendCommand('\\');
       console.log('Мастерство достигнуто. Очищаем буфер.');
       training.isMasteryAchieved = true;
-      training.isStarPressed = false; // Сбрасываем флаг после завершения
-      training.isActive = false; // Останавливаем тренировку
-      training.skillCount = 0; // Сбрасываем счетчик после завершения
+      training.isStarPressed = false;
+      training.isActive = false;
+      training.skillCount = 0;
     } else if (training.skillCount >= training.maxSkillCount) {
       sendCommand('\\'); // Очищаем буфер команд
       console.log(
@@ -146,19 +154,18 @@
         general.isActionLocked = false; // Разблокируем через 1 секунду
       }, 1000); // Задержка 1 секунда
     }
-  };
+  }
 
   // Функция для поиска местоположения жертвы
-  const findVictimLocation = text => {
-    console.log(`text:`, text);
-    if (hunting.isVictimLocationFound) return; // Пропускаем, если местоположение уже найдено
+  function findVictimLocation(text) {
+    if (hunting.isVictimLocationFound) return;
 
-    if (text.toLowerCase().includes(hunting.victim.toLowerCase())) {
-      const parts = text.toLowerCase().split(hunting.victim.toLowerCase());
+    const victimName = hunting.victim.toLowerCase();
+    if (text.toLowerCase().includes(victimName)) {
+      const parts = text.toLowerCase().split(victimName);
       if (parts.length > 1) {
-        const location = parts[1].trim();
-        console.log(`Местоположение жертвы: ${location}`);
-        hunting.victimLocation = location;
+        hunting.victimLocation = parts[1].trim();
+        console.log(`Местоположение жертвы: ${hunting.victimLocation}`);
         hunting.isVictimLocationFound = true;
         sendCommand(`путь ${hunting.victimLocation}`);
       } else {
@@ -167,50 +174,47 @@
     } else {
       console.log('Имя жертвы не найдено.');
     }
-  };
+  }
 
   // Функция для поиска кода местности
-  const findLocationCode = text => {
+  function findLocationCode(text) {
     if (!hunting.isVictimLocationFound || hunting.isLocationCodeFound) return;
 
-    if (text && typeof text === 'string') {
-      const parts = text.toLowerCase().split(`'${hunting.victimLocation}':`);
-      if (parts.length > 1) {
-        const locationCode = parts[1].trim();
-        if (locationCode) {
-          console.log(`Код местности найден: ${locationCode}`);
-          sendCommand(`бег ${locationCode}`);
+    const victimLocation = hunting.victimLocation.toLowerCase();
+    if (
+      text.toLowerCase().includes(`'${victimLocation}':`) &&
+      !text.toLowerCase().includes('ты уже здесь')
+    ) {
+      const pattern = new RegExp(`'${victimLocation}':\\s*(\\S+)`, 'i');
+      const match = text.match(pattern);
+      const locationCode = match?.[1];
+      if (locationCode) {
+        hunting.locationCode = locationCode;
+        console.log(`Код местности найден: ${hunting.locationCode}`);
+        sendCommand(`бег ${hunting.locationCode}`);
 
-          hunting.isInspecting = true;
-          hunting.isLocationCodeFound = true;
-          sendCommand('смотр');
-        } else {
-          console.log(
-            'Код местности не найден; после местоположения только пробелы.'
-          );
-        }
+        hunting.isInspecting = true;
+        hunting.isLocationCodeFound = true;
+        sendCommand('смотр');
       } else {
-        console.log('Не удалось найти код местности.');
+        console.log('Код местности не найден.');
       }
     } else {
-      console.log('Текст для обработки недоступен или не является строкой.');
+      console.log('Не удалось найти код местности.');
     }
-  };
+  }
 
   // Функция для обработки встречи с жертвой
-  const handleVictimEncounter = text => {
-    console.log(`Получено сообщение:`, text);
-
-    if (
-      text.toLowerCase().includes(`${hunting.victim.toLowerCase()} уже труп`)
-    ) {
+  function handleVictimEncounter(text) {
+    const victimName = hunting.victim.toLowerCase();
+    if (text.toLowerCase().includes(`${victimName} уже труп`)) {
       console.log(`>>> Жертва ${hunting.victim} мертва! Останавливаем охоту.`);
       hunting.isActive = false;
       hunting.isInspecting = false;
       hunting.isVictimKilled = true;
       hunting.isInCombat = false;
       sendCommand('смотр');
-    } else if (text.toLowerCase().includes(hunting.victim.toLowerCase())) {
+    } else if (text.toLowerCase().includes(victimName)) {
       console.log(`>>> Жертва ${hunting.victim} тут!`);
       if (text.toLowerCase().includes('сбегает')) {
         console.log('>>> Жертва пытается сбежать, продолжаем преследование...');
@@ -220,17 +224,15 @@
         delayedSendCommand(`${hunting.attackCommand} ${hunting.victim}`, 1500);
         hunting.isInspecting = false;
         hunting.isInCombat = true;
-        setTimeout(() => {
-          continueAttacking();
-        }, 2000);
+        continueAttacking();
       }
     } else {
       console.log('>>> Жертва не найдена на текущей локации.');
       hunting.isInspecting = false;
     }
-  };
+  }
 
-  const continueAttacking = () => {
+  function continueAttacking() {
     if (!hunting.isInCombat) return;
 
     sendCommand(`${hunting.attackCommand} ${hunting.victim}`);
@@ -238,9 +240,9 @@
     setTimeout(() => {
       continueAttacking();
     }, 2000);
-  };
+  }
 
-  const handleHuntingState = text => {
+  function handleHuntingState(text) {
     // Если местоположение жертвы ещё не найдено, продолжаем его искать
     if (!hunting.isVictimLocationFound) {
       findVictimLocation(text); // Ищем местоположение жертвы
@@ -264,25 +266,22 @@
     ) {
       if (text.toLowerCase().includes(`${hunting.victim}`)) {
         console.log('>>> В локации жертвы, осматриваюсь.');
-
         handleVictimEncounter(text); // Обрабатываем текст после осмотра
       }
     }
-  };
+  }
 
-  const handleTrainingState = text => {
+  function handleTrainingState(text) {
     if (text.includes('У тебя не хватает энергии')) {
       handleLowEnergy(); // Вызываем правильную функцию триггера
     } else if (training.isStarPressed && !training.isMasteryAchieved) {
       checkMasteryAndRepeat(text); // Проверяем, достигнуто ли мастерство
     }
-  };
+  }
 
   // Обработка текстовых триггеров
   $('.trigger').off('text.myNamespace');
   $('.trigger').on('text.myNamespace', (e, text) => {
-    // logDebug(`Полученный текст: ${text}`);
-
     if (hunting.isActive) {
       handleHuntingState(text);
     }
@@ -291,19 +290,17 @@
       handleTrainingState(text);
     }
 
-    for (const [pattern, action] of Object.entries(triggers)) {
-      const regex = new RegExp(pattern);
-      if (regex.test(text)) {
+    for (const { pattern, action } of triggers) {
+      if (pattern.test(text)) {
         action();
-        break; // Останавливаемся после первого совпадения
+        break;
       }
     }
 
     // Добавляем проверку состояния боя
     if (hunting.isInCombat) {
-      if (
-        text.toLowerCase().includes(`${hunting.victim.toLowerCase()} уже труп`)
-      ) {
+      const victimName = hunting.victim.toLowerCase();
+      if (text.toLowerCase().includes(`${victimName} уже труп`)) {
         console.log(`>>> Жертва ${hunting.victim} мертва!`);
         sendCommand(`взять ${hunting.lootItem}`);
         hunting.isInCombat = false; // Останавливаем атаку
@@ -320,117 +317,134 @@
     }
   });
 
-  const command = (e, cmd, text, handler) => {
-    const re = new RegExp(`^${cmd}\\s*(.*)`);
-    const match = re.exec(text);
-    if (!match) return false;
-    handler(match);
-    e.stopPropagation();
-    // Не возвращаем значение
-  };
+  // Функция для обработки пользовательских команд
+  function processCommand(e, text) {
+    const commands = [
+      {
+        cmd: '/victim',
+        handler: args => {
+          hunting.victim = args.trim();
+          console.log(`>>> Твоя мишень теперь ${hunting.victim}\n`);
+        },
+      },
+      {
+        cmd: '/weapon',
+        handler: args => {
+          general.weapon = args.trim();
+          console.log(`>>> Твое оружие теперь ${general.weapon}\n`);
+        },
+      },
+      {
+        cmd: '/iden',
+        handler: args => {
+          sendCommand(`взять ${args} сумка`);
+          sendCommand(`к опознание ${args}`);
+          sendCommand(`полож ${args} сумка`);
+        },
+      },
+      {
+        cmd: '/purge',
+        handler: args => {
+          sendCommand(`взять ${args} сумка`);
+          sendCommand(`бросить ${args}`);
+          sendCommand(`жертвовать ${args}`);
+        },
+      },
+      {
+        cmd: '/bd',
+        handler: args => {
+          general.doorToBash = args.trim();
+          console.log(
+            `>>> Поехали, вышибаем по направлению ${general.doorToBash}\n`
+          );
+          sendCommand(`выбить ${general.doorToBash}`);
+        },
+      },
+    ];
+
+    const commandObj = commands.find(({ cmd }) => text.startsWith(cmd));
+    if (commandObj) {
+      const args = text.slice(commandObj.cmd.length).trim();
+      commandObj.handler(args);
+      e.stopPropagation();
+      return true;
+    }
+    return false;
+  }
 
   $('.trigger').off('input.myNamespace');
   $('.trigger').on('input.myNamespace', (e, text) => {
-    let commandHandled = false;
-
-    commandHandled =
-      command(e, '/victim', text, args => {
-        hunting.victim = args[1];
-        console.log(`>>> Твоя мишень теперь ${hunting.victim}\n`);
-      }) || commandHandled;
-
-    commandHandled =
-      command(e, '/weapon', text, args => {
-        general.weapon = args[1];
-        console.log(`>>> Твое оружие теперь ${general.weapon}\n`);
-      }) || commandHandled;
-
-    commandHandled =
-      command(e, '/iden', text, args => {
-        sendCommand(`взять ${args[1]} сумка`);
-        sendCommand(`к опознание ${args[1]}`);
-        sendCommand(`полож ${args[1]} сумка`);
-      }) || commandHandled;
-
-    commandHandled =
-      command(e, '/purge', text, args => {
-        sendCommand(`взять ${args[1]} сумка`);
-        sendCommand(`бросить ${args[1]}`);
-        sendCommand(`жертвовать ${args[1]}`);
-      }) || commandHandled;
-
-    commandHandled =
-      command(e, '/bd', text, args => {
-        general.doorToBash = args[1];
-        console.log(
-          `>>> Поехали, вышибаем по направлению ${general.doorToBash}\n`
-        );
-        sendCommand(`выбить ${general.doorToBash}`);
-      }) || commandHandled;
-
-    // Не возвращаем значение из обработчика события
+    processCommand(e, text);
   });
 
-  const go = where => {
+  // Функции для перемещения и действий
+  function go(where) {
     sendCommand(where);
-  };
+  }
 
-  const scan = where => {
+  function scan(where) {
     sendCommand(`scan ${where}`);
-  };
+  }
 
-  const shoot = where => {
+  function shoot(where) {
     sendCommand(`${hunting.attackCommand}  ${where}.${hunting.victim}`);
-  };
+  }
 
-  // Коды клавиш для цифровой клавиатуры
   const KeyCodes = {
-    KP_0: 96,
-    KP_1: 97,
-    KP_2: 98,
-    KP_3: 99,
-    KP_4: 100,
-    KP_5: 101,
-    KP_6: 102,
-    KP_7: 103,
-    KP_8: 104,
-    KP_9: 105,
-    KP_MUL: 106,
-    KP_PLUS: 107,
-    KP_MINUS: 109,
-    KP_DOT: 110,
-    KP_DIV: 111,
+    Numpad0: 'Numpad0',
+    Numpad1: 'Numpad1',
+    Numpad2: 'Numpad2',
+    Numpad3: 'Numpad3',
+    Numpad4: 'Numpad4',
+    Numpad5: 'Numpad5',
+    Numpad6: 'Numpad6',
+    Numpad7: 'Numpad7',
+    Numpad8: 'Numpad8',
+    Numpad9: 'Numpad9',
+    NumpadMultiply: 'NumpadMultiply',
+    NumpadAdd: 'NumpadAdd',
+    NumpadSubtract: 'NumpadSubtract',
+    NumpadDecimal: 'NumpadDecimal',
+    NumpadDivide: 'NumpadDivide',
+    Escape: 'Escape',
+    Backquote: 'Backquote',
+    Tab: 'Tab',
+    Home: 'Home',
+    End: 'End',
   };
 
-  const dir = (d, e) => {
+  function dir(direction, e) {
     if (e.ctrlKey) {
-      shoot(d);
+      shoot(direction);
     } else if (e.altKey) {
-      scan(d);
+      scan(direction);
     } else {
-      go(d);
+      go(direction);
     }
-  };
+  }
 
-  const handleMovement = e => {
+  function handleMovement(e) {
     const numpadDirectionMap = {
-      Numpad1: 'down',
-      Numpad2: 'south',
-      Numpad4: 'west',
-      Numpad6: 'east',
-      Numpad8: 'north',
-      Numpad9: 'up',
+      [KeyCodes.Numpad1]: 'down',
+      [KeyCodes.Numpad2]: 'south',
+      [KeyCodes.Numpad4]: 'west',
+      [KeyCodes.Numpad6]: 'east',
+      [KeyCodes.Numpad8]: 'north',
+      [KeyCodes.Numpad9]: 'up',
     };
 
-    if (numpadDirectionMap[e.code]) {
-      dir(numpadDirectionMap[e.code], e);
-    } else if (e.code === 'Numpad5') {
+    const direction = numpadDirectionMap[e.code];
+    if (direction) {
+      dir(direction, e);
+      e.preventDefault();
+      return true;
+    } else if (e.code === KeyCodes.Numpad5) {
       sendCommand('scan');
-    } else {
-      return false;
+      e.preventDefault();
+      return true;
     }
-    return true;
-  };
+    return false;
+  }
 
   const buffs = [
     { prop: 'det', value: 'o', command: 'к диагностика' },
@@ -464,83 +478,76 @@
     { prop: 'pro', value: 'b', command: 'c broom ritual' },
   ];
 
-  const handleBuffs = () => {
-    buffs.forEach(buff => {
-      const { prop, value, command } = buff;
-      if (mudprompt[prop] === 'none' || !mudprompt[prop].a.includes(value)) {
+  function handleBuffs() {
+    buffs.forEach(({ prop, value, command }) => {
+      const promptProp = mudprompt[prop];
+      if (promptProp === 'none' || !promptProp?.a?.includes(value)) {
         sendCommand(command);
       }
     });
-  };
+  }
 
   // Обработчик нажатия клавиш
   $(document).off('keydown.myNamespace');
   $(document).on('keydown.myNamespace', e => {
-    if (e.ctrlKey && e.which >= 96 && e.which <= 105) {
-      e.preventDefault();
-    }
     if (handleMovement(e)) return;
 
-    switch (e.which) {
-      case 27: // Escape
+    switch (e.code) {
+      case KeyCodes.Escape:
         if (!e.shiftKey && !e.ctrlKey && !e.altKey) {
-          $('#input input').val(''); // Очистить поле ввода
+          $('#input input').val('');
         }
         break;
-      case 192: // Tilda для баффов
+      case KeyCodes.Backquote:
         handleBuffs();
         break;
-      case 9: {
-        // Tab
-        const commands = [
-          'гиг',
-          'аура',
-          'неи',
-          'щит',
-          'брон',
-          'благ',
-          'полет',
-          'благость',
-        ];
-        const targets = ['д'];
-        // const commands = ['гиг', 'ускор', 'зв'];
-        // const targets = ['д', '1.гол', '2.гол', '3.гол'];
-
-        targets.forEach(target => {
-          commands.forEach(command => {
-            sendCommand(`к ${command} ${target}`);
-            // sendCommand(`приказ дем к ${command} ${target}`);
+      case KeyCodes.Tab:
+        {
+          const commands = [
+            'гиг',
+            'аура',
+            'неи',
+            'щит',
+            'брон',
+            'благ',
+            'полет',
+            'благость',
+          ];
+          const targets = ['д'];
+          targets.forEach(target => {
+            commands.forEach(command => {
+              sendCommand(`к ${command} ${target}`);
+            });
           });
-        });
+        }
         break;
-      }
-      case KeyCodes.KP_PLUS: // Начать тренировку
-        training.isActive = true; // Обучение запущено
-        training.isStarPressed = true; // Устанавливаем флаг нажатия *
-        training.isMasteryAchieved = false; // Сбрасываем флаг достижения мастерства
-        training.skillCount = 0; // Сбрасываем счетчик навыка
+      case KeyCodes.NumpadAdd:
+        training.isActive = true;
+        training.isStarPressed = true;
+        training.isMasteryAchieved = false;
+        training.skillCount = 0;
         sendCommand(training.skillToTrain);
-        checkMasteryAndRepeat(''); // Запускаем цикл
+        checkMasteryAndRepeat('');
         break;
-      case KeyCodes.KP_MINUS: // Остановить тренировку
-        training.isStarPressed = false; // Останавливаем цикл
-        training.isActive = false; // Останавливаем тренировку
-        training.skillCount = 0; // Сбрасываем счетчик навыка
+      case KeyCodes.NumpadSubtract:
+        training.isStarPressed = false;
+        training.isActive = false;
+        training.skillCount = 0;
         console.log('Цикл остановлен при нажатии минуса');
         break;
-      case 36: // Home
+      case KeyCodes.Home:
         sendCommand('взять снад сумка:лечение');
         sendCommand('осуш снад');
         break;
-      case 35: // End
+      case KeyCodes.End:
         sendCommand('взять один сумка:лечение');
         sendCommand('надеть один');
         sendCommand('к леч');
         break;
-      case KeyCodes.KP_MUL: // Начать охоту
-        hunting.isActive = true; // Охота запущена
-        hunting.isVictimLocationFound = false; // Сбрасываем флаг местоположения
-        hunting.isLocationCodeFound = false; // Сбрасываем флаг кода
+      case KeyCodes.NumpadMultiply:
+        hunting.isActive = true;
+        hunting.isVictimLocationFound = false;
+        hunting.isLocationCodeFound = false;
         hunting.isInspecting = false;
         sendCommand(`где ${hunting.victim}`);
         console.log('Отправлена команда "где victim".');
