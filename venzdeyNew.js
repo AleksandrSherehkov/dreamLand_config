@@ -15,9 +15,9 @@
   const state = {
     hunting: {
       isActive: false, // Флаг для отслеживания процесса охоты
-      attackCommand: 'к вред',
-      victim: 'скрипач',
-      lootItem: 'broken',
+      attackCommand: 'к галь хл',
+      victim: 'хулиган',
+      lootItem: 'verse',
       victimLocation: '', // Местоположение жертвы
       isVictimLocationFound: false, // Флаг, что местоположение жертвы найдено
       isLocationCodeFound: false, // Флаг, что код местности найден
@@ -28,7 +28,7 @@
     },
     training: {
       isActive: false, // Переменная для отслеживания процесса обучения
-      skillToTrain: 'к ул броня',
+      skillToTrain: 'к оберег молний',
       skillCount: 0, // Счетчик выполнения навыка
       maxSkillCount: 98, // Максимальное количество повторений
       isMasteryAchieved: false, // Флаг для отслеживания достижения "мастерски владеешь"
@@ -41,9 +41,9 @@
       meltCounter: 0, // Противодействие автовыкидыванию
       lastCast: '',
       doorToBash: 'n',
-      weapon: 'vainglory',
-      foodItem: 'манна',
-      sleepItem: 'кресло',
+      weapon: 'travellers',
+      foodItem: 'гриб',
+      sleepItem: 'райс уго',
       isActionLocked: false, // Для предотвращения спама действий
       isLooting: false, // Флаг для отслеживания процесса лутания
     },
@@ -447,15 +447,16 @@
   }
 
   const buffs = [
-    { prop: 'det', value: 'o', command: 'к диагностика' },
+    // { prop: 'det', value: 'o', command: 'к диагностика' },
     { prop: 'det', value: 'e', command: 'к обнаружить зло' },
     { prop: 'det', value: 'g', command: 'к обнаружить добро' },
     { prop: 'det', value: 'i', command: 'c detect invis' },
     { prop: 'trv', value: 'i', command: 'c invisibility' },
-    { prop: 'pro', value: 's', command: 'к аура' },
-    { prop: 'enh', value: 'b', command: 'к благословение' },
-    { prop: 'enh', value: 'B', command: 'к благость' },
-    { prop: 'trv', value: 'f', command: 'к полет' },
+    { prop: 'det', value: 'r', command: 'c infravision' },
+    // { prop: 'pro', value: 's', command: 'к аура' },
+    // { prop: 'enh', value: 'b', command: 'к благословение' },
+    // { prop: 'enh', value: 'B', command: 'к благость' },
+    // { prop: 'trv', value: 'f', command: 'к полет' },
     { prop: 'pro', value: 'S', command: 'c shield' },
     { prop: 'enh', value: 'l', command: 'c learning' },
     { prop: 'enh', value: 'g', command: 'c giant' },
@@ -503,20 +504,11 @@
         break;
       case KeyCodes.Tab:
         {
-          const commands = [
-            'гиг',
-            'аура',
-            'неи',
-            'щит',
-            'брон',
-            'благ',
-            'полет',
-            'благость',
-          ];
-          const targets = ['д'];
+          const commands = ['гиг', 'звезд', 'ускор', 'щит', 'брон', ,];
+          const targets = ['демон'];
           targets.forEach(target => {
             commands.forEach(command => {
-              sendCommand(`к ${command} ${target}`);
+              sendCommand(`приказ демон к ${command} ${target}`);
             });
           });
         }
