@@ -15,9 +15,9 @@
   const state = {
     hunting: {
       isActive: false, // Флаг для отслеживания процесса охоты
-      attackCommand: 'к вред',
-      victim: 'скрипач',
-      lootItem: 'broken',
+      attackCommand: 'к галь хл',
+      victim: 'хулиган',
+      lootItem: 'verse',
       victimLocation: '', // Местоположение жертвы
       isVictimLocationFound: false, // Флаг, что местоположение жертвы найдено
       isLocationCodeFound: false, // Флаг, что код местности найден
@@ -28,7 +28,7 @@
     },
     training: {
       isActive: false, // Переменная для отслеживания процесса обучения
-      skillToTrain: 'к ул броня',
+      skillToTrain: 'к оберег молний',
       skillCount: 0, // Счетчик выполнения навыка
       maxSkillCount: 98, // Максимальное количество повторений
       isMasteryAchieved: false, // Флаг для отслеживания достижения "мастерски владеешь"
@@ -41,9 +41,9 @@
       meltCounter: 0, // Противодействие автовыкидыванию
       lastCast: '',
       doorToBash: 'n',
-      weapon: 'warhammer',
-      foodItem: 'манна',
-      sleepItem: 'кресло',
+      weapon: 'travellers',
+      foodItem: 'гриб',
+      sleepItem: 'райс уго',
       isActionLocked: false, // Для предотвращения спама действий
       isLooting: false, // Флаг для отслеживания процесса лутания
     },
@@ -99,6 +99,75 @@
       action: handleLowEnergy,
     },
   ];
+
+  // Функция для сохранения данных в JSON файл
+  const saveToJSON = data => {
+    const jsonData = JSON.stringify(data, null, 2);
+    const blob = new Blob([jsonData], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'output.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Переменная для накопления текста
+  let accumulatedText = '';
+
+  // Функция для парсинга текста
+  const parseInputText = text => {
+    const parsedData = {};
+    const lines = text.split('\n');
+
+    lines.forEach(line => {
+      const keyValueMatch = line.match(/^([^:—]+)[—:]+\s*(.*)$/);
+      if (keyValueMatch) {
+        const key = keyValueMatch[1].trim();
+        const value = keyValueMatch[2].trim();
+        parsedData[key] = value;
+      } else if (line.trim()) {
+        const lastKey = Object.keys(parsedData).pop();
+        if (lastKey) {
+          parsedData[lastKey] += `, ${line.trim()}`;
+        }
+      }
+    });
+
+    // Парсим название предмета до символов '--'
+    const nameMatch = text.match(/^([^—]+?)\s*--/);
+    if (nameMatch) {
+      parsedData['Название предмета'] = nameMatch[1].trim();
+    }
+
+    // Парсим уровень предмета
+    const levelMatch = text.match(/(\d+)\s+уровня/);
+    if (levelMatch) {
+      parsedData['Уровень предмета'] = levelMatch[1].trim();
+    }
+
+    // Парсим использование предмета (начиная с одного из указанных слов и заканчивая точкой)
+    const usageMatch = text.match(
+      /(Надевается|Вдевается|Накидывается|Используется|Берется|Опоясывает|Обувается|Кружится).*?\./
+    );
+    console.log('DDDD', usageMatch);
+    if (usageMatch) {
+      parsedData['Использование предмета'] = usageMatch[0].trim();
+    } else {
+      console.log('Использование предмета не найдено');
+    }
+
+    // Собираем данные в нужном порядке
+    const orderedParsedData = {
+      'Название предмета': parsedData['Название предмета'],
+      'Уровень предмета': parsedData['Уровень предмета'],
+      'Использование предмета': parsedData['Использование предмета'],
+      Состав: parsedData['Состав'],
+      ...parsedData,
+    };
+
+    return orderedParsedData;
+  };
 
   function handleLowEnergy() {
     console.log('>>> Энергии не хватает, засыпаю...\n');
@@ -282,6 +351,26 @@
   // Обработка текстовых триггеров
   $('.trigger').off('text.myNamespace');
   $('.trigger').on('text.myNamespace', (e, text) => {
+    logDebug(`Получен текст из инпута: ${text}`);
+
+    // if (text.startsWith('к опоз ')) {
+    //   accumulatedText = text; // Начинаем накопление с новой команды
+    // } else {
+    //   accumulatedText += `\n${text}`; // Накопление текста
+    // }
+
+    // // Проверка окончания ввода (например, пустая строка или конкретный маркер)
+    // if (text.trim() === '') {
+    //   const parsedData = parseInputText(accumulatedText);
+    //   if (Object.keys(parsedData).length > 0) {
+    //     logDebug(`Распарсенные данные: ${JSON.stringify(parsedData, null, 2)}`);
+    //     saveToJSON(parsedData);
+    //   } else {
+    //     logDebug('Не удалось распарсить данные, файл не будет сохранён.');
+    //   }
+    //   accumulatedText = ''; // Сбрасываем накопленный текст после сохранения
+    // }
+
     if (hunting.isActive) {
       handleHuntingState(text);
     }
@@ -362,13 +451,12 @@
       },
     ];
 
-    for (const { cmd, handler } of commands) {
-      if (text.startsWith(cmd)) {
-        const args = text.slice(cmd.length).trim();
-        handler(args);
-        e.stopPropagation();
-        return true;
-      }
+    const commandObj = commands.find(({ cmd }) => text.startsWith(cmd));
+    if (commandObj) {
+      const args = text.slice(commandObj.cmd.length).trim();
+      commandObj.handler(args);
+      e.stopPropagation();
+      return true;
     }
     return false;
   }
@@ -407,6 +495,11 @@
     NumpadSubtract: 'NumpadSubtract',
     NumpadDecimal: 'NumpadDecimal',
     NumpadDivide: 'NumpadDivide',
+    Escape: 'Escape',
+    Backquote: 'Backquote',
+    Tab: 'Tab',
+    Home: 'Home',
+    End: 'End',
   };
 
   function dir(direction, e) {
@@ -443,15 +536,16 @@
   }
 
   const buffs = [
-    { prop: 'det', value: 'o', command: 'к диагностика' },
+    // { prop: 'det', value: 'o', command: 'к диагностика' },
     { prop: 'det', value: 'e', command: 'к обнаружить зло' },
     { prop: 'det', value: 'g', command: 'к обнаружить добро' },
     { prop: 'det', value: 'i', command: 'c detect invis' },
     { prop: 'trv', value: 'i', command: 'c invisibility' },
-    { prop: 'pro', value: 's', command: 'к аура' },
-    { prop: 'enh', value: 'b', command: 'к благословение' },
-    { prop: 'enh', value: 'B', command: 'к благость' },
-    { prop: 'trv', value: 'f', command: 'к полет' },
+    { prop: 'det', value: 'r', command: 'c infravision' },
+    // { prop: 'pro', value: 's', command: 'к аура' },
+    // { prop: 'enh', value: 'b', command: 'к благословение' },
+    // { prop: 'enh', value: 'B', command: 'к благость' },
+    // { prop: 'trv', value: 'f', command: 'к полет' },
     { prop: 'pro', value: 'S', command: 'c shield' },
     { prop: 'enh', value: 'l', command: 'c learning' },
     { prop: 'enh', value: 'g', command: 'c giant' },
@@ -486,64 +580,59 @@
   // Обработчик нажатия клавиш
   $(document).off('keydown.myNamespace');
   $(document).on('keydown.myNamespace', e => {
+    console.log(
+      `Key pressed: e.code=${e.code}, e.key=${e.key}, e.keyCode=${e.keyCode}`
+    );
+
     if (handleMovement(e)) return;
 
     switch (e.code) {
-      case 'Escape':
+      case KeyCodes.Escape:
         if (!e.shiftKey && !e.ctrlKey && !e.altKey) {
           $('#input input').val('');
         }
         break;
-      case 'Backquote':
+      case KeyCodes.Backquote:
         handleBuffs();
         break;
-      case 'Tab':
+      case KeyCodes.Tab:
         {
-          const commands = [
-            'гиг',
-            'аура',
-            'неи',
-            'щит',
-            'брон',
-            'благ',
-            'полет',
-            'благость',
-          ];
-          const targets = ['д'];
+          const commands = ['гиг', 'звезд', 'ускор', 'щит', 'брон'];
+          const targets = ['демон'];
           targets.forEach(target => {
             commands.forEach(command => {
-              sendCommand(`к ${command} ${target}`);
+              sendCommand(`приказ демон к ${command} ${target}`);
             });
           });
         }
         break;
-      case 'NumpadAdd':
-        training.isActive = true; // Обучение запущено
-        training.isStarPressed = true; // Устанавливаем флаг нажатия *
-        training.isMasteryAchieved = false; // Сбрасываем флаг достижения мастерства
-        training.skillCount = 0; // Сбрасываем счетчик навыка
+      case KeyCodes.NumpadAdd:
+        training.isActive = true;
+        training.isStarPressed = true;
+        training.isMasteryAchieved = false;
+        training.skillCount = 0;
         sendCommand(training.skillToTrain);
-        checkMasteryAndRepeat(''); // Запускаем цикл
+        checkMasteryAndRepeat('');
         break;
-      case 'NumpadSubtract':
-        training.isStarPressed = false; // Останавливаем цикл
-        training.isActive = false; // Останавливаем тренировку
-        training.skillCount = 0; // Сбрасываем счетчик навыка
+      case KeyCodes.NumpadSubtract:
+        training.isStarPressed = false;
+        training.isActive = false;
+        training.skillCount = 0;
         console.log('Цикл остановлен при нажатии минуса');
         break;
-      case 'Home':
+      case KeyCodes.Home:
         sendCommand('взять снад сумка:лечение');
         sendCommand('осуш снад');
         break;
-      case 'End':
+      case KeyCodes.End:
         sendCommand('взять один сумка:лечение');
         sendCommand('надеть один');
         sendCommand('к леч');
         break;
-      case 'NumpadMultiply':
-        hunting.isActive = true; // Охота запущена
-        hunting.isVictimLocationFound = false; // Сбрасываем флаг местоположения
-        hunting.isLocationCodeFound = false; // Сбрасываем флаг кода
+      case KeyCodes.NumpadMultiply:
+        hunting.isActive = true;
+        hunting.isVictimLocationFound = false;
+        hunting.isLocationCodeFound = false;
         hunting.isInspecting = false;
         sendCommand(`где ${hunting.victim}`);
         console.log('Отправлена команда "где victim".');
