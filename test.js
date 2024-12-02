@@ -578,8 +578,8 @@
   }
 
   // Обработчик нажатия клавиш
-  $(document).off('keydown.myNamespace');
-  $(document).on('keydown.myNamespace', e => {
+  $('#input input').off('keydown.myNamespace');
+  $('#input input').on('keydown.myNamespace', e => {
     console.log(
       `Key pressed: e.code=${e.code}, e.key=${e.key}, e.keyCode=${e.keyCode}`
     );
@@ -591,11 +591,14 @@
         if (!e.shiftKey && !e.ctrlKey && !e.altKey) {
           $('#input input').val('');
         }
+        e.preventDefault();
         break;
       case KeyCodes.Backquote:
         handleBuffs();
+        e.preventDefault();
         break;
       case KeyCodes.Tab:
+        e.preventDefault();
         {
           const commands = ['гиг', 'звезд', 'ускор', 'щит', 'брон'];
           const targets = ['демон'];
@@ -613,21 +616,25 @@
         training.skillCount = 0;
         sendCommand(training.skillToTrain);
         checkMasteryAndRepeat('');
+        e.preventDefault();
         break;
       case KeyCodes.NumpadSubtract:
         training.isStarPressed = false;
         training.isActive = false;
         training.skillCount = 0;
         console.log('Цикл остановлен при нажатии минуса');
+        e.preventDefault();
         break;
       case KeyCodes.Home:
         sendCommand('взять снад сумка:лечение');
         sendCommand('осуш снад');
+        e.preventDefault();
         break;
       case KeyCodes.End:
         sendCommand('взять один сумка:лечение');
         sendCommand('надеть один');
         sendCommand('к леч');
+        e.preventDefault();
         break;
       case KeyCodes.NumpadMultiply:
         hunting.isActive = true;
@@ -636,10 +643,10 @@
         hunting.isInspecting = false;
         sendCommand(`где ${hunting.victim}`);
         console.log('Отправлена команда "где victim".');
+        e.preventDefault();
         break;
       default:
         return;
     }
-    e.preventDefault();
   });
 })();
