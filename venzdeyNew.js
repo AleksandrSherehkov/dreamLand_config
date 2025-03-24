@@ -2,9 +2,7 @@
  * В переменной mudprompt хранится много полезной информации о персонаже.
  * Подробнее см. https://github.com/dreamland-mud/mudjs/wiki/MUD-prompt
  * Расшифровка аффектов: https://github.com/dreamland-mud/mudjs/blob/dreamland/src/components/windowletsPanel/windowletsConstants.js
- */
-
-(() => {
+ */ (() => {
   /*--------------------------------------------------------------------------
    * Триггеры и автоматизация для MUD-игры.
    *-------------------------------------------------------------------------*/
@@ -13,11 +11,15 @@
 
   // Переменные состояния игры, сгруппированные по категориям
   const state = {
+    brewing: {
+      isActive: false, // Флаг активности процесса варки
+      isExhausted: false, // Флаг усталости
+    },
     hunting: {
       isActive: false, // Флаг для отслеживания процесса охоты
-      attackCommand: 'к галь хл',
-      victim: 'хулиган',
-      lootItem: 'verse',
+      attackCommand: 'к ментальный нож',
+      victim: 'бан',
+      lootItem: 'broken',
       victimLocation: '', // Местоположение жертвы
       isVictimLocationFound: false, // Флаг, что местоположение жертвы найдено
       isLocationCodeFound: false, // Флаг, что код местности найден
@@ -28,7 +30,7 @@
     },
     training: {
       isActive: false, // Переменная для отслеживания процесса обучения
-      skillToTrain: 'к оберег молний',
+      skillToTrain: 'к защита от холода',
       skillCount: 0, // Счетчик выполнения навыка
       maxSkillCount: 98, // Максимальное количество повторений
       isMasteryAchieved: false, // Флаг для отслеживания достижения "мастерски владеешь"
@@ -50,7 +52,7 @@
   };
 
   // Деструктуризация state для удобства доступа
-  const { hunting, training, energy, general } = state;
+  const { hunting, training, energy, general, brewing } = state;
 
   const logDebug = message => {
     if (DEBUG_MODE) {
@@ -72,6 +74,62 @@
 
   // Триггеры с предкомпилированными регулярными выражениями
   const triggers = [
+    {
+      pattern: /^Попробуй еще раз.$/,
+      action: () => {
+        console.log('>>> Повторяем поджиг зелья.');
+        sendCommand('к гор роз');
+        sendCommand('испол кот');
+      },
+    },
+    {
+      pattern:
+        /^Ты очень устала. Перед следующей варкой надо немного отдохнуть.$/,
+      action: () => {
+        console.log('>>> Персонаж устал, начинаем восстановление.');
+        brewing.isExhausted = true;
+        sendCommand('колдовать освеж');
+      },
+    },
+    {
+      pattern: /^Усталость проходит... но лишь на мгновение.$/,
+      action: () => {
+        console.log('>>> Восстанавливаем энергию.');
+        sendCommand('колдовать освеж');
+      },
+    },
+    {
+      pattern: /^Усталость проходит, и ты готова к новым свершениям.$/,
+      action: () => {
+        console.log('>>> Полностью восстановились, продолжаем варку.');
+        brewing.isExhausted = false;
+        sendCommand('к сотв в кост');
+        console.log('>>> brewing.isActive1:', brewing.isActive);
+        if (brewing.isActive) startBrewing();
+      },
+    },
+    {
+      pattern:
+        /^Используя специализированные знания зельеварения, ты изготавливаешь бурлящее снадобье мудреца!$/,
+      action: () => {
+        sendCommand('взять снадоб из кот');
+        sendCommand('осушить снад');
+        sendCommand('к сотв в кост');
+        console.log('>>> Зелье готово!');
+        console.log('>>> brewing.isActive2:', brewing.isActive);
+        if (brewing.isActive) startBrewing(); // Автоматически варим следующее зелье
+      },
+    },
+    {
+      pattern:
+        /^Портативный котел для зелий внезапно раскаляется докрасна, и что-то внутри гулко взрывается!$/,
+      action: () => {
+        console.log('>>> Котел взорвался! начинаем сначало.');
+        sendCommand('к сотв в кост');
+        console.log('>>> brewing.isActive3:', brewing.isActive);
+        if (brewing.isActive) startBrewing();
+      },
+    },
     {
       pattern: /ВЫБИЛ.? у тебя .*, и он.? пада.?т .*!/,
       action: () => {
@@ -99,6 +157,134 @@
       action: handleLowEnergy,
     },
   ];
+
+  function playAlertSound() {
+    if (!window.speechSynthesis) {
+      console.error('Браузер не поддерживает синтез речи.');
+      return;
+    }
+
+    const utterance = new SpeechSynthesisUtterance('Внимание! Тайфоэн!');
+    utterance.lang = 'ru-RU'; // Указываем язык
+    utterance.volume = 1; // Громкость (0.0 - 1.0)
+    utterance.rate = 1; // Скорость (0.1 - 10)
+    utterance.pitch = 1; // Высота тона (0 - 2)
+
+    // Попробуем дождаться завершения предыдущей речи перед началом новой
+    window.speechSynthesis.cancel();
+    setTimeout(() => {
+      window.speechSynthesis.speak(utterance);
+    }, 100);
+  }
+
+  // Проверяем, не блокирует ли браузер воспроизведение звука
+  document.addEventListener(
+    'click',
+    () => {
+      playAlertSound(); // Запускаем звук при клике пользователя (разрешение браузера)
+    },
+    { once: true }
+  ); // Разрешение дается 1 раз
+  function startBrewing() {
+    console.log('>>> Начинаем варить зелье!');
+    brewing.isActive = true;
+    brewing.isExhausted = false; // Сбрасываем усталость
+    sendCommand('к сотв роз');
+    sendCommand('к сотв роз');
+    sendCommand('бросить роз');
+    sendCommand('пол роз кот');
+    sendCommand('к гор роз');
+    sendCommand('испол кот');
+  }
+
+  function stopBrewing() {
+    if (!brewing.isActive) return;
+
+    console.log('>>> Останавливаем варку зелий.');
+    brewing.isActive = false;
+  }
+
+  let isFileDownloaded = false;
+  let accumulatedText = '';
+  let parseTimeout = null; // Таймер для отсрочки парсинга
+
+  // Функция для сохранения данных в JSON файл
+  const saveToJSON = data => {
+    if (Object.keys(data).length === 0) return; // Если данные пустые, не сохраняем
+    if (isFileDownloaded) return; // Если уже скачали файл, не повторяем
+
+    isFileDownloaded = true;
+    const jsonData = JSON.stringify(data, null, 2);
+    const blob = new Blob([jsonData], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'item_info.json';
+    a.click();
+    URL.revokeObjectURL(url);
+    console.log('✅ Файл item_info.json скачан!');
+  };
+
+  const isInvalidLine = line => {
+    return (
+      line.trim() === '' || // Пустая строка
+      line.match(/^\<\d+\/\d+зд \d+\/\d+ман \d+\/\d+шг \d+оп Вых/) // Регулярка для строки состояния
+    );
+  };
+
+  // Функция для парсинга текста
+  const parseInputText = text => {
+    const parsedData = {};
+    const lines = text.split('\n');
+
+    lines.forEach(line => {
+      const keyValueMatch = line.match(/^([^:—]+)[—:]+\s*(.*)$/);
+      if (keyValueMatch) {
+        const key = keyValueMatch[1].trim();
+        const value = keyValueMatch[2].trim();
+        parsedData[key] = value;
+      } else if (line.trim()) {
+        const lastKey = Object.keys(parsedData).pop();
+        if (lastKey) {
+          parsedData[lastKey] += `, ${line.trim()}`;
+        }
+      }
+    });
+
+    // Парсим название предмета до символов '--'
+    const nameMatch = text.match(/^([^—]+?)\s*--/);
+    if (nameMatch) {
+      parsedData['Название предмета'] = nameMatch[1].trim();
+    }
+
+    // Парсим уровень предмета
+    const levelMatch = text.match(/(\d+)\s+уровня/);
+    if (levelMatch) {
+      parsedData['Уровень предмета'] = levelMatch[1].trim();
+    }
+
+    // Парсим использование предмета (начиная с одного из указанных слов и заканчивая точкой)
+    const usageMatch = text.match(
+      /(Надевается|Вдевается|Накидывается|Используется|Берется|Опоясывает|Обувается|Кружится).*?\./
+    );
+
+    if (usageMatch) {
+      parsedData['Использование предмета'] = usageMatch[0].trim();
+    } else {
+      console.log('Использование предмета не найдено');
+    }
+
+    // Собираем данные в нужном порядке
+    const orderedParsedData = {
+      'Название предмета': parsedData['Название предмета'],
+      'Уровень предмета': parsedData['Уровень предмета'],
+      'Использование предмета': parsedData['Использование предмета'],
+      Состав: parsedData['Состав'],
+      ...parsedData,
+    };
+
+    return orderedParsedData;
+  };
 
   function handleLowEnergy() {
     console.log('>>> Энергии не хватает, засыпаю...\n');
@@ -221,7 +407,7 @@
         sendCommand(`где ${hunting.victim}`);
       } else {
         console.log(`>>> Атакую жертву: ${hunting.victim}`);
-        delayedSendCommand(`${hunting.attackCommand} ${hunting.victim}`, 1500);
+        delayedSendCommand(`${hunting.attackCommand} ${hunting.victim}`, 3000);
         hunting.isInspecting = false;
         hunting.isInCombat = true;
         continueAttacking();
@@ -239,7 +425,7 @@
 
     setTimeout(() => {
       continueAttacking();
-    }, 2000);
+    }, 3000);
   }
 
   function handleHuntingState(text) {
@@ -282,6 +468,51 @@
   // Обработка текстовых триггеров
   $('.trigger').off('text.myNamespace');
   $('.trigger').on('text.myNamespace', (e, text) => {
+    logDebug(`Получен текст из инпута: ${text}`);
+
+    // Если в тексте есть слово "Тайфоэн", воспроизводим звук
+    if (text.includes('Тайфоэн')) {
+      console.log(
+        '>>> Обнаружено упоминание Тайфоэна! Воспроизводим звуковой сигнал.'
+      );
+      playAlertSound();
+    }
+
+    if (text.trim() === 'сказ варить') {
+      startBrewing();
+      e.preventDefault();
+    } else if (text.trim() === 'сказ стоп') {
+      stopBrewing();
+      e.preventDefault();
+    }
+
+    // // Фильтруем ненужные строки
+    // if (isInvalidLine(text)) {
+    //   console.log('⏩ Пропущена ненужная строка.');
+    //   return;
+    // }
+
+    // if (text.startsWith('к опоз ')) {
+    //   accumulatedText = text; // Начинаем запись новой команды
+    //   isFileDownloaded = false; // Сбрасываем флаг
+    //   clearTimeout(parseTimeout); // Очищаем таймер
+    // } else {
+    //   accumulatedText += `\n${text}`; // Добавляем текст к общему буферу
+    // }
+
+    // // Устанавливаем таймер, чтобы парсинг произошёл через 500 мс после последнего ввода
+    // clearTimeout(parseTimeout);
+    // parseTimeout = setTimeout(() => {
+    //   const parsedData = parseInputText(accumulatedText);
+    //   accumulatedText = ''; // Очищаем после парсинга
+
+    //   if (Object.keys(parsedData).length > 0) {
+    //     saveToJSON(parsedData); // Сохраняем файл ОДИН раз
+    //   } else {
+    //     console.log('⚠️ Данные не были распознаны.');
+    //   }
+    // }, 500); // Задержка 500 мс после последнего ввода
+
     if (hunting.isActive) {
       handleHuntingState(text);
     }
@@ -489,8 +720,12 @@
   }
 
   // Обработчик нажатия клавиш
-  $(document).off('keydown.myNamespace');
-  $(document).on('keydown.myNamespace', e => {
+  $('#input input').off('keydown.myNamespace');
+  $('#input input').on('keydown.myNamespace', e => {
+    console.log(
+      `Key pressed: e.code=${e.code}, e.key=${e.key}, e.keyCode=${e.keyCode}`
+    );
+
     if (handleMovement(e)) return;
 
     switch (e.code) {
@@ -498,14 +733,43 @@
         if (!e.shiftKey && !e.ctrlKey && !e.altKey) {
           $('#input input').val('');
         }
+        e.preventDefault();
         break;
       case KeyCodes.Backquote:
         handleBuffs();
+        e.preventDefault();
         break;
       case KeyCodes.Tab:
+        e.preventDefault();
+        //  const items = [
+        //    'Пламя Тьмы',
+        //    'черный шлем с шипами',
+        //    'ониксовая серьга',
+        //    'портативный котел для зелий',
+        //    'тени сумеречных ветров',
+        //    'Лето',
+        //    'Лето',
+        //    'одеяние девственности',
+        //    'Осень',
+        //    'Наводнение',
+        //    'нарукавник могущества',
+        //    'нарукавник могущества',
+        //    'Мерцающее Кольцо Венздей',
+        //    'Мерцающее Кольцо Венздей',
+        //    'справедливость лаеркай',
+        //    'кинжал путешественника',
+        //    'герб',
+        //    'Мерцающий Пояс Венздей',
+        //    'Весна',
+        //    'платиновые сапоги',
+        //    'светящаяся сфера',
+        //  ];
+
+        //  items.forEach(item => sendCommand(`к огнеупорность ${item}`));
+
         {
-          const commands = ['гиг', 'звезд', 'ускор', 'щит', 'брон', ,];
-          const targets = ['демон'];
+          const commands = ['гиг', 'звезд', 'ускор', 'щит', 'брон', 'зашъ'];
+          const targets = ['демон', '1.голем', '2.голем', '3.голем'];
           targets.forEach(target => {
             commands.forEach(command => {
               sendCommand(`приказ демон к ${command} ${target}`);
@@ -520,21 +784,25 @@
         training.skillCount = 0;
         sendCommand(training.skillToTrain);
         checkMasteryAndRepeat('');
+        e.preventDefault();
         break;
       case KeyCodes.NumpadSubtract:
         training.isStarPressed = false;
         training.isActive = false;
         training.skillCount = 0;
         console.log('Цикл остановлен при нажатии минуса');
+        e.preventDefault();
         break;
       case KeyCodes.Home:
         sendCommand('взять снад сумка:лечение');
         sendCommand('осуш снад');
+        e.preventDefault();
         break;
       case KeyCodes.End:
         sendCommand('взять один сумка:лечение');
         sendCommand('надеть один');
         sendCommand('к леч');
+        e.preventDefault();
         break;
       case KeyCodes.NumpadMultiply:
         hunting.isActive = true;
@@ -543,6 +811,7 @@
         hunting.isInspecting = false;
         sendCommand(`где ${hunting.victim}`);
         console.log('Отправлена команда "где victim".');
+        e.preventDefault();
         break;
       default:
         return;
