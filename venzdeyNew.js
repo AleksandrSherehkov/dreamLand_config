@@ -209,20 +209,39 @@
   let parseTimeout = null; // Таймер для отсрочки парсинга
 
   // Функция для сохранения данных в JSON файл
-  const saveToJSON = data => {
-    if (Object.keys(data).length === 0) return; // Если данные пустые, не сохраняем
-    if (isFileDownloaded) return; // Если уже скачали файл, не повторяем
+  const saveToBackend = async data => {
+    if (
+      Object.keys(data).length === 0 ||
+      !data['Название предмета'] ||
+      !data['Уровень предмета']
+    ) {
+      console.log('⚠️ Неполные данные, не отправляем.');
+      return;
+    }
 
-    isFileDownloaded = true;
-    const jsonData = JSON.stringify(data, null, 2);
-    const blob = new Blob([jsonData], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'item_info.json';
-    a.click();
-    URL.revokeObjectURL(url);
-    console.log('✅ Файл item_info.json скачан!');
+    try {
+      const response = await fetch('http://localhost:3001/api/items', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ data }),
+      });
+
+      const result = await response.json();
+      if (response.ok) {
+        echo(
+          `✅ Предмет успешно добавлен: ${data['Название предмета']} (${data['Уровень предмета']} ур.)`
+        );
+        console.log('✅ Предмет отправлен на сервер:', result);
+      } else {
+        echo(result.message);
+        console.warn('❌ Ошибка сервера:', result.message || result);
+      }
+    } catch (error) {
+      console.error('🚫 Ошибка отправки:', error);
+      echo(error);
+    }
   };
 
   const isInvalidLine = line => {
@@ -235,14 +254,23 @@
   // Функция для парсинга текста
   const parseInputText = text => {
     const parsedData = {};
+    const spellList = [];
+
     const lines = text.split('\n');
 
     lines.forEach(line => {
       const keyValueMatch = line.match(/^([^:—]+)[—:]+\s*(.*)$/);
       if (keyValueMatch) {
-        const key = keyValueMatch[1].trim();
+        let key = keyValueMatch[1].trim();
         const value = keyValueMatch[2].trim();
-        parsedData[key] = value;
+
+        // Если это строка типа "Заклинание 118 уровня"
+        if (/^Заклинани(е|я)\s+\d+\s+уровня:?$/i.test(key.trim())) {
+          key = 'Заклинание';
+          spellList.push(value);
+        } else {
+          parsedData[key] = value;
+        }
       } else if (line.trim()) {
         const lastKey = Object.keys(parsedData).pop();
         if (lastKey) {
@@ -250,6 +278,11 @@
         }
       }
     });
+
+    // Объединяем все заклинания в одну строку
+    if (spellList.length > 0) {
+      parsedData['Заклинание'] = spellList.join(', ');
+    }
 
     // Парсим название предмета до символов '--'
     const nameMatch = text.match(/^([^—]+?)\s*--/);
@@ -263,23 +296,22 @@
       parsedData['Уровень предмета'] = levelMatch[1].trim();
     }
 
-    // Парсим использование предмета (начиная с одного из указанных слов и заканчивая точкой)
+    // Парсим использование предмета
     const usageMatch = text.match(
       /(Надевается|Вдевается|Накидывается|Используется|Берется|Опоясывает|Обувается|Кружится).*?\./
     );
 
     if (usageMatch) {
       parsedData['Использование предмета'] = usageMatch[0].trim();
-    } else {
-      console.log('Использование предмета не найдено');
     }
 
-    // Собираем данные в нужном порядке
+    // Порядок вывода
     const orderedParsedData = {
       'Название предмета': parsedData['Название предмета'],
       'Уровень предмета': parsedData['Уровень предмета'],
       'Использование предмета': parsedData['Использование предмета'],
       Состав: parsedData['Состав'],
+      Заклинание: parsedData['Заклинание'],
       ...parsedData,
     };
 
@@ -486,32 +518,37 @@
       e.preventDefault();
     }
 
-    // // Фильтруем ненужные строки
-    // if (isInvalidLine(text)) {
-    //   console.log('⏩ Пропущена ненужная строка.');
-    //   return;
-    // }
+    // Фильтруем ненужные строки
+    if (isInvalidLine(text)) {
+      console.log('⏩ Пропущена ненужная строка.');
+      return;
+    }
 
-    // if (text.startsWith('к опоз ')) {
-    //   accumulatedText = text; // Начинаем запись новой команды
-    //   isFileDownloaded = false; // Сбрасываем флаг
-    //   clearTimeout(parseTimeout); // Очищаем таймер
-    // } else {
-    //   accumulatedText += `\n${text}`; // Добавляем текст к общему буферу
-    // }
+    if (text.startsWith('к опоз ')) {
+      accumulatedText = text; // Начинаем запись новой команды
+      isFileDownloaded = false; // Сбрасываем флаг
+      clearTimeout(parseTimeout); // Очищаем таймер
+    } else {
+      accumulatedText += `\n${text}`; // Добавляем текст к общему буферу
+    }
 
-    // // Устанавливаем таймер, чтобы парсинг произошёл через 500 мс после последнего ввода
-    // clearTimeout(parseTimeout);
-    // parseTimeout = setTimeout(() => {
-    //   const parsedData = parseInputText(accumulatedText);
-    //   accumulatedText = ''; // Очищаем после парсинга
+    // Устанавливаем таймер, чтобы парсинг произошёл через 500 мс после последнего ввода
+    clearTimeout(parseTimeout);
+    parseTimeout = setTimeout(() => {
+      const cleanedText = accumulatedText
+        .split('\n')
+        .filter(line => !line.trim().startsWith('к опоз'))
+        .join('\n');
 
-    //   if (Object.keys(parsedData).length > 0) {
-    //     saveToJSON(parsedData); // Сохраняем файл ОДИН раз
-    //   } else {
-    //     console.log('⚠️ Данные не были распознаны.');
-    //   }
-    // }, 500); // Задержка 500 мс после последнего ввода
+      const parsedData = parseInputText(cleanedText);
+      accumulatedText = ''; // Очищаем после парсинга
+
+      if (Object.keys(parsedData).length > 0) {
+        saveToBackend(parsedData); // Сохраняем файл ОДИН раз
+      } else {
+        console.log('⚠️ Данные не были распознаны.');
+      }
+    }, 500); // Задержка 500 мс после последнего ввода
 
     if (hunting.isActive) {
       handleHuntingState(text);
