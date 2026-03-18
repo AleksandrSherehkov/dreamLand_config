@@ -2,14 +2,97 @@
  * В переменной mudprompt хранится много полезной информации о персонаже.
  * Подробнее см. https://github.com/dreamland-mud/mudjs/wiki/MUD-prompt
  * Расшифровка аффектов: https://github.com/dreamland-mud/mudjs/blob/dreamland/src/components/windowletsPanel/windowletsConstants.js
- */ (() => {
-  /*--------------------------------------------------------------------------
-   * Триггеры и автоматизация для MUD-игры.
-   *-------------------------------------------------------------------------*/
+ */
+(() => {
+  /* -------------------------------------------------------------------------- */
+  /* CONFIG                                                                      */
+  /* -------------------------------------------------------------------------- */
 
-  const DEBUG_MODE = true; // true - для вывода отладочной информации
+  const CONFIG = {
+    debug: true,
 
-  // Переменные состояния игры, сгруппированные по категориям
+    alerts: {
+      typhoenText: 'Тайфоэн',
+      speechText: 'Внимание! Тайфоэн!',
+      speechLang: 'ru-RU',
+      speechDelayMs: 100,
+    },
+
+    commands: {
+      brewStartText: 'сказ варить',
+      brewStopText: 'сказ стоп',
+      clearBuffer: '\\',
+      standUp: 'вст',
+      score: 'ум',
+      look: 'смотр',
+      wherePrefix: 'где',
+      pathPrefix: 'путь',
+      runPrefix: 'бег',
+      scan: 'scan',
+      drink: 'колдов родн |пить род',
+      foodPrefix: 'колдов сотворить пищу |есть',
+      sleepPrefix: 'спать',
+    },
+
+    brewing: {
+      createRose: 'к сотв роз',
+      dropRose: 'бросить роз',
+      putRoseInCauldron: 'пол роз кот',
+      igniteRose: 'к гор роз',
+      useCauldron: 'испол кот',
+      createInCauldron: 'к сотв в кост',
+      refreshSpell: 'колдовать освеж',
+      takePotionFromCauldron: 'взять снадоб из кот',
+      drinkPotion: 'осушить снад',
+    },
+
+    training: {
+      defaultSkill: 'к щит',
+      defaultDelayMs: 4000,
+      maxSkillCount: 98,
+      unlockDelayMs: 300,
+      energyWakeUpDelayMs: 25000,
+      energyRecoveryDelayMs: 26000,
+    },
+
+    hunting: {
+      defaultAttackCommand: 'к вред',
+      defaultVictim: 'скрипач',
+      defaultLoot: 'струна',
+      attackIntervalMs: 3000,
+    },
+
+    general: {
+      defaultDoorToBash: 'n',
+      defaultWeapon: 'молоток',
+      defaultFoodItem: 'манна',
+      defaultSleepItem: 'кресло',
+    },
+
+    quickActions: {
+      healPotion: ['взять снад сумка:лечение', 'осуш снад'],
+      healCast: ['взять один сумка:лечение', 'надеть один', 'к леч'],
+    },
+
+    tabActions: {
+      commands: ['гиг', 'щит', 'брон', 'неист'],
+      targets: ['демон', 'волк'],
+    },
+  };
+
+  const DEBUG_MODE = CONFIG.debug;
+
+  const log = {
+    debug: (...args) => DEBUG_MODE && console.log('[DEBUG][MUD]', ...args),
+    info: (...args) => console.log('[INFO][MUD]', ...args),
+    warn: (...args) => console.warn('[WARN][MUD]', ...args),
+    error: (...args) => console.error('[ERROR][MUD]', ...args),
+  };
+
+  /* -------------------------------------------------------------------------- */
+  /* STATE                                                                       */
+  /* -------------------------------------------------------------------------- */
+
   const state = {
     brewing: {
       isActive: false, // Флаг активности процесса варки
@@ -17,9 +100,9 @@
     },
     hunting: {
       isActive: false, // Флаг для отслеживания процесса охоты
-      attackCommand: 'к вред',
-      victim: 'ханжа',
-      lootItem: 'крупица',
+      attackCommand: CONFIG.hunting.defaultAttackCommand,
+      victim: CONFIG.hunting.defaultVictim,
+      lootItem: CONFIG.hunting.defaultLoot,
       victimLocation: '', // Местоположение жертвы
       isVictimLocationFound: false, // Флаг, что местоположение жертвы найдено
       isLocationCodeFound: false, // Флаг, что код местности найден
@@ -30,11 +113,11 @@
     },
     training: {
       isActive: false, // Переменная для отслеживания процесса обучения
-      skillToTrain: 'к щит',
-      skillDelayMs: 4000, // ручная задержка между попытками
+      skillToTrain: CONFIG.training.defaultSkill,
+      skillDelayMs: CONFIG.training.defaultDelayMs, // ручная задержка между попытками
       lastSkillUsedAt: 0, // время последнего использования навыка
       skillCount: 0, // Счетчик выполнения навыка
-      maxSkillCount: 98, // Максимальное количество повторений
+      maxSkillCount: CONFIG.training.maxSkillCount, // Максимальное количество повторений
       isMasteryAchieved: false, // Флаг для отслеживания достижения "мастерски владеешь"
       isStarPressed: false, // Флаг для отслеживания нажатия *
     },
@@ -44,17 +127,20 @@
     general: {
       meltCounter: 0, // Противодействие автовыкидыванию
       lastCast: '',
-      doorToBash: 'n',
-      weapon: 'молоток',
-      foodItem: 'манна',
-      sleepItem: 'кресло',
+      doorToBash: CONFIG.general.defaultDoorToBash,
+      weapon: CONFIG.general.defaultWeapon,
+      foodItem: CONFIG.general.defaultFoodItem,
+      sleepItem: CONFIG.general.defaultSleepItem,
       isActionLocked: false, // Для предотвращения спама действий
       isLooting: false, // Флаг для отслеживания процесса лутания
     },
   };
 
-  // Деструктуризация state для удобства доступа
   const { hunting, training, energy, general, brewing } = state;
+
+  /* -------------------------------------------------------------------------- */
+  /* TIMERS                                                                      */
+  /* -------------------------------------------------------------------------- */
 
   const timers = {
     attack: null,
@@ -71,6 +157,40 @@
       clearTimeout(timers[name]);
       timers[name] = null;
     }
+  }
+
+  /* -------------------------------------------------------------------------- */
+  /* HELPERS                                                                     */
+  /* -------------------------------------------------------------------------- */
+
+  function escapeRegExp(str) {
+    return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  const sendCommand = command => {
+    log.debug('Отправляю команду:', command);
+    send(command);
+  };
+
+  function playAlertSound() {
+    if (!window.speechSynthesis) {
+      log.error('Браузер не поддерживает синтез речи.');
+      return;
+    }
+
+    const utterance = new SpeechSynthesisUtterance(CONFIG.alerts.speechText);
+    utterance.lang = CONFIG.alerts.speechLang;
+    utterance.volume = 1;
+    utterance.rate = 1;
+    utterance.pitch = 1;
+
+    window.speechSynthesis.cancel();
+    clearTimer('speech');
+
+    timers.speech = setTimeout(() => {
+      window.speechSynthesis.speak(utterance);
+      timers.speech = null;
+    }, CONFIG.alerts.speechDelayMs);
   }
 
   function resetBrewingState() {
@@ -108,265 +228,43 @@
 
   function stopCombat(reason = 'без указания причины') {
     if (hunting.isInCombat) {
-      console.log(`>>> Бой остановлен: ${reason}`);
+      log.info('>>> Бой остановлен:', reason);
     }
 
     hunting.isInCombat = false;
     clearTimer('attack');
   }
 
-  const logDebug = message => {
-    if (DEBUG_MODE) {
-      console.log(message);
-    }
-  };
-
-  // Универсальная функция для отправки команд
-  const sendCommand = command => {
-    logDebug(`Отправляю команду: ${command}`);
-    send(command);
-  };
-
-  // Универсальная функция для отправки команды с задержкой
-  const delayedSendCommand = (command, delay) => {
-    logDebug(`Отложенная команда: ${command} через ${delay} мс`);
-    return setTimeout(() => sendCommand(command), delay);
-  };
-
-  // Триггеры с предкомпилированными регулярными выражениями
-  const triggers = [
-    {
-      pattern: /^Попробуй еще раз.$/,
-      action: () => {
-        console.log('>>> Повторяем поджиг зелья.');
-        sendCommand('к гор роз');
-        sendCommand('испол кот');
-      },
-    },
-    {
-      pattern:
-        /^Ты очень устала. Перед следующей варкой надо немного отдохнуть.$/,
-      action: () => {
-        console.log('>>> Персонаж устал, начинаем восстановление.');
-        brewing.isExhausted = true;
-        sendCommand('колдовать освеж');
-      },
-    },
-    {
-      pattern: /^Усталость проходит... но лишь на мгновение.$/,
-      action: () => {
-        console.log('>>> Восстанавливаем энергию.');
-        sendCommand('колдовать освеж');
-      },
-    },
-    {
-      pattern: /^Усталость проходит, и ты готова к новым свершениям.$/,
-      action: () => {
-        console.log('>>> Полностью восстановились, продолжаем варку.');
-        brewing.isExhausted = false;
-        sendCommand('к сотв в кост');
-        console.log('>>> brewing.isActive1:', brewing.isActive);
-        if (brewing.isActive) startBrewing();
-      },
-    },
-    {
-      pattern:
-        /^Используя специализированные знания зельеварения, ты изготавливаешь бурлящее снадобье мудреца!$/,
-      action: () => {
-        sendCommand('взять снадоб из кот');
-        sendCommand('осушить снад');
-        sendCommand('к сотв в кост');
-        console.log('>>> Зелье готово!');
-        console.log('>>> brewing.isActive2:', brewing.isActive);
-        if (brewing.isActive) startBrewing(); // Автоматически варим следующее зелье
-      },
-    },
-    {
-      pattern:
-        /^Портативный котел для зелий внезапно раскаляется докрасна, и что-то внутри гулко взрывается!$/,
-      action: () => {
-        console.log('>>> Котел взорвался! начинаем сначало.');
-        sendCommand('к сотв в кост');
-        console.log('>>> brewing.isActive3:', brewing.isActive);
-        if (brewing.isActive) startBrewing();
-      },
-    },
-    {
-      pattern: /ВЫБИЛ.? у тебя .*, и он.? пада.?т .*!/,
-      action: () => {
-        console.log('>>> Подбираю оружие с пола, очищаю буфер команд.\n');
-        sendCommand('\\');
-        sendCommand(`взять ${general.weapon}|надеть ${general.weapon}`);
-      },
-    },
-    {
-      pattern: /Ты хочешь есть\./,
-      action: () => {
-        console.log('>>> Сейчас бы шашлычка...\n');
-        sendCommand(`колдов сотворить пищу |есть ${general.foodItem}`);
-      },
-    },
-    {
-      pattern: /Ты хочешь пить\./,
-      action: () => {
-        console.log('>>> Сейчас бы вискарика...\n');
-        sendCommand('колдов родн |пить род');
-      },
-    },
-    {
-      pattern: /У тебя не хватает энергии/,
-      action: handleLowEnergy,
-    },
-  ];
-
-  function playAlertSound() {
-    if (!window.speechSynthesis) {
-      console.error('Браузер не поддерживает синтез речи.');
-      return;
-    }
-
-    const utterance = new SpeechSynthesisUtterance('Внимание! Тайфоэн!');
-    utterance.lang = 'ru-RU';
-    utterance.volume = 1;
-    utterance.rate = 1;
-    utterance.pitch = 1;
-
-    window.speechSynthesis.cancel();
-    clearTimer('speech');
-
-    timers.speech = setTimeout(() => {
-      window.speechSynthesis.speak(utterance);
-      timers.speech = null;
-    }, 100);
-  }
-
-  // Проверяем, не блокирует ли браузер воспроизведение звука
-  document.addEventListener(
-    'click',
-    () => {
-      playAlertSound(); // Запускаем звук при клике пользователя (разрешение браузера)
-    },
-    { once: true }
-  ); // Разрешение дается 1 раз
-
-  $('#rpc-events').off('rpc-prompt.myNamespace');
-  $('#rpc-events').on('rpc-prompt.myNamespace', (e, data) => {
-    if (!DEBUG_MODE) return;
-
-    console.log('RAW rpc-prompt snapshot:', JSON.parse(JSON.stringify(data)));
-
-    setTimeout(() => {
-      console.log(
-        'window.mudprompt snapshot:',
-        JSON.parse(JSON.stringify(window.mudprompt || {}))
-      );
-    }, 0);
-  });
+  /* -------------------------------------------------------------------------- */
+  /* BREWING                                                                     */
+  /* -------------------------------------------------------------------------- */
 
   function startBrewing() {
-    console.log('>>> Начинаем варить зелье!');
+    log.info('>>> Начинаем варить зелье!');
     brewing.isActive = true;
     brewing.isExhausted = false;
 
-    sendCommand('к сотв роз');
-    sendCommand('к сотв роз');
-    sendCommand('бросить роз');
-    sendCommand('пол роз кот');
-    sendCommand('к гор роз');
-    sendCommand('испол кот');
+    sendCommand(CONFIG.brewing.createRose);
+    sendCommand(CONFIG.brewing.createRose);
+    sendCommand(CONFIG.brewing.dropRose);
+    sendCommand(CONFIG.brewing.putRoseInCauldron);
+    sendCommand(CONFIG.brewing.igniteRose);
+    sendCommand(CONFIG.brewing.useCauldron);
   }
 
   function stopBrewing() {
     if (!brewing.isActive) return;
 
-    console.log('>>> Останавливаем варку зелий.');
+    log.info('>>> Останавливаем варку зелий.');
     resetBrewingState();
   }
 
-  let isFileDownloaded = false;
-  let accumulatedText = '';
-  let parseTimeout = null; // Таймер для отсрочки парсинга
-
-  // Функция для сохранения данных в JSON файл
-  const saveToJSON = data => {
-    if (Object.keys(data).length === 0) return; // Если данные пустые, не сохраняем
-    if (isFileDownloaded) return; // Если уже скачали файл, не повторяем
-
-    isFileDownloaded = true;
-    const jsonData = JSON.stringify(data, null, 2);
-    const blob = new Blob([jsonData], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'item_info.json';
-    a.click();
-    URL.revokeObjectURL(url);
-    console.log('✅ Файл item_info.json скачан!');
-  };
-
-  const isInvalidLine = line => {
-    return (
-      line.trim() === '' || // Пустая строка
-      line.match(/^\<\d+\/\d+зд \d+\/\d+ман \d+\/\d+шг \d+оп Вых/) // Регулярка для строки состояния
-    );
-  };
-
-  // Функция для парсинга текста
-  const parseInputText = text => {
-    const parsedData = {};
-    const lines = text.split('\n');
-
-    lines.forEach(line => {
-      const keyValueMatch = line.match(/^([^:—]+)[—:]+\s*(.*)$/);
-      if (keyValueMatch) {
-        const key = keyValueMatch[1].trim();
-        const value = keyValueMatch[2].trim();
-        parsedData[key] = value;
-      } else if (line.trim()) {
-        const lastKey = Object.keys(parsedData).pop();
-        if (lastKey) {
-          parsedData[lastKey] += `, ${line.trim()}`;
-        }
-      }
-    });
-
-    // Парсим название предмета до символов '--'
-    const nameMatch = text.match(/^([^—]+?)\s*--/);
-    if (nameMatch) {
-      parsedData['Название предмета'] = nameMatch[1].trim();
-    }
-
-    // Парсим уровень предмета
-    const levelMatch = text.match(/(\d+)\s+уровня/);
-    if (levelMatch) {
-      parsedData['Уровень предмета'] = levelMatch[1].trim();
-    }
-
-    // Парсим использование предмета (начиная с одного из указанных слов и заканчивая точкой)
-    const usageMatch = text.match(
-      /(Надевается|Вдевается|Накидывается|Используется|Берется|Опоясывает|Обувается|Кружится).*?\./
-    );
-
-    if (usageMatch) {
-      parsedData['Использование предмета'] = usageMatch[0].trim();
-    } else {
-      console.log('Использование предмета не найдено');
-    }
-
-    // Собираем данные в нужном порядке
-    const orderedParsedData = {
-      'Название предмета': parsedData['Название предмета'],
-      'Уровень предмета': parsedData['Уровень предмета'],
-      'Использование предмета': parsedData['Использование предмета'],
-      Состав: parsedData['Состав'],
-      ...parsedData,
-    };
-
-    return orderedParsedData;
-  };
+  /* -------------------------------------------------------------------------- */
+  /* TRAINING                                                                    */
+  /* -------------------------------------------------------------------------- */
 
   function handleLowEnergy() {
-    console.log('>>> Энергии не хватает, засыпаю...\n');
+    log.warn('>>> Энергии не хватает, засыпаю...');
 
     clearTimer('training');
     clearTimer('trainingUnlock');
@@ -378,13 +276,13 @@
     energy.isLow = true;
     general.isActionLocked = false;
 
-    sendCommand('\\');
-    sendCommand(`спать ${general.sleepItem}`);
+    sendCommand(CONFIG.commands.clearBuffer);
+    sendCommand(`${CONFIG.commands.sleepPrefix} ${general.sleepItem}`);
 
     timers.energyWakeUp = setTimeout(() => {
-      sendCommand('вст');
+      sendCommand(CONFIG.commands.standUp);
       timers.energyWakeUp = null;
-    }, 25000);
+    }, CONFIG.training.energyWakeUpDelayMs);
 
     timers.energyRecovery = setTimeout(() => {
       if (!training.isActive) {
@@ -399,7 +297,7 @@
 
       scheduleTrainingTick(0);
       timers.energyRecovery = null;
-    }, 26000);
+    }, CONFIG.training.energyRecoveryDelayMs);
   }
 
   function scheduleTrainingTick(delay = null) {
@@ -435,11 +333,11 @@
     }
 
     if (training.skillCount >= training.maxSkillCount) {
-      sendCommand('\\');
-      console.log(
-        'Навык выполнен 99 раз. Очищаем буфер и выполняем команду "ум".'
+      sendCommand(CONFIG.commands.clearBuffer);
+      log.info(
+        'Навык выполнен 98 раз. Очищаем буфер и выполняем команду "ум".'
       );
-      sendCommand('ум');
+      sendCommand(CONFIG.commands.score);
       training.skillCount = 0;
       scheduleTrainingTick(training.skillDelayMs);
       return;
@@ -448,7 +346,7 @@
     training.lastSkillUsedAt = Date.now();
     sendCommand(training.skillToTrain);
     training.skillCount++;
-    logDebug(`Текущий счетчик навыка: ${training.skillCount}`);
+    log.debug('Текущий счетчик навыка:', training.skillCount);
 
     general.isActionLocked = true;
     clearTimer('trainingUnlock');
@@ -459,148 +357,17 @@
       if (training.isActive && training.isStarPressed && !energy.isLow) {
         scheduleTrainingTick(training.skillDelayMs);
       }
-    }, 300);
+    }, CONFIG.training.unlockDelayMs);
   }
 
-  // Проверка на "мастерски владеешь" и запуск цикла повторения до выполнения
   function checkMasteryAndRepeat(text) {
-    logDebug(`Функция checkMasteryAndRepeat вызвана с текстом: ${text}`);
+    log.debug('Функция checkMasteryAndRepeat вызвана с текстом:', text);
 
     if (text.includes('мастерски владеешь')) {
-      sendCommand('\\');
-      console.log('Мастерство достигнуто. Очищаем буфер.');
+      sendCommand(CONFIG.commands.clearBuffer);
+      log.info('Мастерство достигнуто. Очищаем буфер.');
       training.isMasteryAchieved = true;
       resetTrainingState();
-    }
-  }
-
-  // Функция для поиска местоположения жертвы
-  function findVictimLocation(text) {
-    if (hunting.isVictimLocationFound) return;
-
-    const victimName = hunting.victim.toLowerCase();
-    if (text.toLowerCase().includes(victimName)) {
-      const parts = text.toLowerCase().split(victimName);
-      if (parts.length > 1) {
-        hunting.victimLocation = parts[1].trim();
-        console.log(`Местоположение жертвы: ${hunting.victimLocation}`);
-        hunting.isVictimLocationFound = true;
-        sendCommand(`путь ${hunting.victimLocation}`);
-      } else {
-        console.log('Не удалось найти местоположение.');
-      }
-    } else {
-      console.log('Имя жертвы не найдено.');
-    }
-  }
-
-  // Функция для поиска кода местности
-  function findLocationCode(text) {
-    if (!hunting.isVictimLocationFound || hunting.isLocationCodeFound) return;
-
-    const victimLocation = hunting.victimLocation.toLowerCase();
-    if (
-      text.toLowerCase().includes(`'${victimLocation}':`) &&
-      !text.toLowerCase().includes('ты уже здесь')
-    ) {
-      const pattern = new RegExp(`'${victimLocation}':\\s*(\\S+)`, 'i');
-      const match = text.match(pattern);
-      const locationCode = match?.[1];
-      if (locationCode) {
-        hunting.locationCode = locationCode;
-        console.log(`Код местности найден: ${hunting.locationCode}`);
-        sendCommand(`бег ${hunting.locationCode}`);
-
-        hunting.isInspecting = true;
-        hunting.isLocationCodeFound = true;
-        sendCommand('смотр');
-      } else {
-        console.log('Код местности не найден.');
-      }
-    } else {
-      console.log('Не удалось найти код местности.');
-    }
-  }
-
-  // Функция для обработки встречи с жертвой
-  function handleVictimEncounter(text) {
-    const victimName = hunting.victim.toLowerCase();
-    const lowerText = text.toLowerCase();
-
-    if (lowerText.includes(`${victimName} уже труп`)) {
-      console.log(`>>> Жертва ${hunting.victim} мертва! Останавливаем охоту.`);
-      hunting.isActive = false;
-      hunting.isInspecting = false;
-      hunting.isVictimKilled = true;
-      stopCombat('жертва уже мертва');
-      sendCommand('смотр');
-      return;
-    }
-
-    if (lowerText.includes(victimName)) {
-      console.log(`>>> Жертва ${hunting.victim} тут!`);
-
-      if (lowerText.includes('сбегает')) {
-        console.log('>>> Жертва пытается сбежать, продолжаем преследование...');
-        sendCommand(`где ${hunting.victim}`);
-        return;
-      }
-
-      console.log(`>>> Атакую жертву: ${hunting.victim}`);
-      hunting.isInspecting = false;
-      hunting.isInCombat = true;
-
-      clearTimer('attack');
-      timers.attack = setTimeout(() => {
-        timers.attack = null;
-        continueAttacking();
-      }, 3000);
-
-      return;
-    }
-
-    console.log('>>> Жертва не найдена на текущей локации.');
-    hunting.isInspecting = false;
-  }
-
-  function continueAttacking() {
-    clearTimer('attack');
-
-    if (!hunting.isInCombat) return;
-
-    sendCommand(`${hunting.attackCommand} ${hunting.victim}`);
-
-    timers.attack = setTimeout(() => {
-      continueAttacking();
-    }, 3000);
-  }
-
-  function handleHuntingState(text) {
-    // Если местоположение жертвы ещё не найдено, продолжаем его искать
-    if (!hunting.isVictimLocationFound) {
-      findVictimLocation(text); // Ищем местоположение жертвы
-    }
-
-    // Если местоположение найдено, но код местности ещё нет, продолжаем искать код
-    if (hunting.isVictimLocationFound && !hunting.isLocationCodeFound) {
-      if (
-        text.toLowerCase().includes(`'${hunting.victimLocation}':`) &&
-        !text.toLowerCase().includes('ты уже здесь')
-      ) {
-        findLocationCode(text); // Ищем код местности
-      }
-    }
-
-    // Если мы находимся в нужной локации, но ещё не отправляли команду "смотр", ждем осмотра
-    if (
-      hunting.isVictimLocationFound &&
-      hunting.isLocationCodeFound &&
-      hunting.isInspecting
-    ) {
-      if (text.toLowerCase().includes(`${hunting.victim}`)) {
-        console.log('>>> В локации жертвы, осматриваюсь.');
-        handleVictimEncounter(text); // Обрабатываем текст после осмотра
-      }
     }
   }
 
@@ -615,106 +382,256 @@
     }
   }
 
-  // Обработка текстовых триггеров
-  $('.trigger').off('text.myNamespace');
-  $('.trigger').on('text.myNamespace', (e, text) => {
-    logDebug(`Получен текст из инпута: ${text}`);
+  /* -------------------------------------------------------------------------- */
+  /* HUNTING                                                                     */
+  /* -------------------------------------------------------------------------- */
 
-    // Если в тексте есть слово "Тайфоэн", воспроизводим звук
-    if (text.includes('Тайфоэн')) {
-      console.log(
-        '>>> Обнаружено упоминание Тайфоэна! Воспроизводим звуковой сигнал.'
-      );
-      playAlertSound();
+  // Функция для поиска местоположения жертвы
+  function findVictimLocation(text) {
+    if (hunting.isVictimLocationFound) return;
+
+    const victimName = hunting.victim.toLowerCase();
+    if (text.toLowerCase().includes(victimName)) {
+      const parts = text.toLowerCase().split(victimName);
+      if (parts.length > 1) {
+        hunting.victimLocation = parts[1].trim();
+        log.info('Местоположение жертвы:', hunting.victimLocation);
+        hunting.isVictimLocationFound = true;
+        sendCommand(`${CONFIG.commands.pathPrefix} ${hunting.victimLocation}`);
+      } else {
+        log.warn('Не удалось найти местоположение.');
+      }
+    } else {
+      log.warn('Имя жертвы не найдено.');
+    }
+  }
+
+  // Функция для поиска кода местности
+  function findLocationCode(text) {
+    if (!hunting.isVictimLocationFound || hunting.isLocationCodeFound) return;
+
+    const victimLocation = hunting.victimLocation.toLowerCase();
+    if (
+      text.toLowerCase().includes(`'${victimLocation}':`) &&
+      !text.toLowerCase().includes('ты уже здесь')
+    ) {
+      const safeVictimLocation = escapeRegExp(victimLocation);
+      const pattern = new RegExp(`'${safeVictimLocation}':\\s*(\\S+)`, 'i');
+      const match = text.match(pattern);
+      const locationCode = match?.[1];
+
+      if (locationCode) {
+        hunting.locationCode = locationCode;
+        log.info(`Код местности найден: ${hunting.locationCode}`);
+        sendCommand(`${CONFIG.commands.runPrefix} ${hunting.locationCode}`);
+
+        hunting.isInspecting = true;
+        hunting.isLocationCodeFound = true;
+        sendCommand(CONFIG.commands.look);
+      } else {
+        log.warn('Код местности не найден.');
+      }
+    } else {
+      log.warn('Не удалось найти код местности.');
+    }
+  }
+
+  // Функция для обработки встречи с жертвой
+  function handleVictimEncounter(text) {
+    const victimName = hunting.victim.toLowerCase();
+    const lowerText = text.toLowerCase();
+
+    if (lowerText.includes(`${victimName} уже труп`)) {
+      log.info(`>>> Жертва ${hunting.victim} мертва! Останавливаем охоту.`);
+      hunting.isActive = false;
+      hunting.isInspecting = false;
+      hunting.isVictimKilled = true;
+      stopCombat('жертва уже мертва');
+      sendCommand(CONFIG.commands.look);
+      return;
     }
 
-    if (text.trim() === 'сказ варить') {
-      startBrewing();
-      e.preventDefault();
-    } else if (text.trim() === 'сказ стоп') {
-      stopBrewing();
-      e.preventDefault();
+    if (lowerText.includes(victimName)) {
+      log.info(`>>> Жертва ${hunting.victim} тут!`);
+
+      if (lowerText.includes('сбегает')) {
+        log.info('>>> Жертва пытается сбежать, продолжаем преследование...');
+        sendCommand(`${CONFIG.commands.wherePrefix} ${hunting.victim}`);
+        return;
+      }
+
+      log.info(`>>> Атакую жертву: ${hunting.victim}`);
+      hunting.isInspecting = false;
+      hunting.isInCombat = true;
+
+      clearTimer('attack');
+      timers.attack = setTimeout(() => {
+        timers.attack = null;
+        continueAttacking();
+      }, CONFIG.hunting.attackIntervalMs);
+
+      return;
     }
 
-    // // Фильтруем ненужные строки
-    // if (isInvalidLine(text)) {
-    //   console.log('⏩ Пропущена ненужная строка.');
-    //   return;
-    // }
+    log.warn('>>> Жертва не найдена на текущей локации.');
+    hunting.isInspecting = false;
+  }
 
-    // if (text.startsWith('к опоз ')) {
-    //   accumulatedText = text; // Начинаем запись новой команды
-    //   isFileDownloaded = false; // Сбрасываем флаг
-    //   clearTimeout(parseTimeout); // Очищаем таймер
-    // } else {
-    //   accumulatedText += `\n${text}`; // Добавляем текст к общему буферу
-    // }
+  function continueAttacking() {
+    clearTimer('attack');
 
-    // // Устанавливаем таймер, чтобы парсинг произошёл через 500 мс после последнего ввода
-    // clearTimeout(parseTimeout);
-    // parseTimeout = setTimeout(() => {
-    //   const parsedData = parseInputText(accumulatedText);
-    //   accumulatedText = ''; // Очищаем после парсинга
+    if (!hunting.isInCombat) return;
 
-    //   if (Object.keys(parsedData).length > 0) {
-    //     saveToJSON(parsedData); // Сохраняем файл ОДИН раз
-    //   } else {
-    //     console.log('⚠️ Данные не были распознаны.');
-    //   }
-    // }, 500); // Задержка 500 мс после последнего ввода
+    sendCommand(`${hunting.attackCommand} ${hunting.victim}`);
 
-    if (hunting.isActive) {
-      handleHuntingState(text);
+    timers.attack = setTimeout(() => {
+      continueAttacking();
+    }, CONFIG.hunting.attackIntervalMs);
+  }
+
+  function handleHuntingState(text) {
+    // Если местоположение жертвы ещё не найдено, продолжаем его искать
+    if (!hunting.isVictimLocationFound) {
+      findVictimLocation(text); // Ищем местоположение жертвы
     }
 
-    if (training.isActive) {
-      handleTrainingState(text);
-    }
-
-    for (const { pattern, action } of triggers) {
-      if (pattern.test(text)) {
-        action();
-        break;
+    // Если местоположение найдено, но код местности ещё нет, продолжаем искать код
+    if (hunting.isVictimLocationFound && !hunting.isLocationCodeFound) {
+      if (
+        text.toLowerCase().includes(`'${hunting.victimLocation}':`) &&
+        !text.toLowerCase().includes('ты уже здесь')
+      ) {
+        findLocationCode(text);
       }
     }
 
-    // Добавляем проверку состояния боя
-    if (hunting.isInCombat) {
-      const lowerText = text.toLowerCase();
-      const victimName = hunting.victim.toLowerCase();
-
-      if (lowerText.includes(`${victimName} уже труп`)) {
-        console.log(`>>> Жертва ${hunting.victim} мертва!`);
-        sendCommand(`взять ${hunting.lootItem}`);
-        stopCombat('жертва убита');
-      } else if (lowerText.includes('ты не видишь здесь такого')) {
-        console.log('>>> Жертва недоступна для атаки.');
-        stopCombat('жертва недоступна');
-      } else if (lowerText.includes('вы не можете сражаться')) {
-        console.log('>>> Вы не можете продолжать бой.');
-        stopCombat('бой запрещен');
-      } else if (lowerText.includes('вы умерли')) {
-        console.log('>>> Вы погибли.');
-        stopCombat('персонаж погиб');
+    // Если мы находимся в нужной локации, но ещё не отправляли команду "смотр", ждем осмотра
+    if (
+      hunting.isVictimLocationFound &&
+      hunting.isLocationCodeFound &&
+      hunting.isInspecting
+    ) {
+      if (text.toLowerCase().includes(`${hunting.victim}`)) {
+        log.info('>>> В локации жертвы, осматриваюсь.');
+        handleVictimEncounter(text);
       }
     }
-  });
+  }
 
-  // Функция для обработки пользовательских команд
+  /* -------------------------------------------------------------------------- */
+  /* PARSER                                                                      */
+  /* -------------------------------------------------------------------------- */
+
+  let accumulatedText = '';
+
+  // Отправка распарсенного предмета на бэкенд
+  const saveToBackend = async data => {
+    if (
+      Object.keys(data).length === 0 ||
+      !data['Название предмета'] ||
+      !data['Уровень предмета']
+    ) {
+      console.log('⚠️ Неполные данные, не отправляем.');
+      return;
+    }
+
+    try {
+      const response = await fetch('http://localhost:3001/api/items', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data }),
+      });
+
+      const result = await response.json();
+      if (response.ok) {
+        echo(
+          `✅ Предмет успешно добавлен: ${data['Название предмета']} (${data['Уровень предмета']} ур.)`
+        );
+        console.log('✅ Предмет отправлен на сервер:', result);
+      } else {
+        echo(result.message);
+        console.warn('❌ Ошибка сервера:', result.message || result);
+      }
+    } catch (error) {
+      console.error('🚫 Ошибка отправки:', error);
+      echo(error);
+    }
+  };
+
+  const isInvalidLine = line =>
+    line.trim() === '' ||
+    line.match(/^\<\d+\/\д+зд \д+\/\д+ман \д+\/\д+шг \д+оп Вых/);
+
+  // Парсер текста предметов
+  const parseInputText = text => {
+    const parsedData = {};
+    const spellList = [];
+    const lines = text.split('\n');
+
+    lines.forEach(line => {
+      const keyValueMatch = line.match(/^([^:—]+)[—:]+\s*(.*)$/);
+      if (keyValueMatch) {
+        let key = keyValueMatch[1].trim();
+        const value = keyValueMatch[2].trim();
+
+        // "Заклинание 118 уровня"
+        if (/^Заклинани(е|я)\s+\d+\s+уровня:?$/i.test(key.trim())) {
+          key = 'Заклинание';
+          spellList.push(value);
+        } else {
+          parsedData[key] = value;
+        }
+      } else if (line.trim()) {
+        const lastKey = Object.keys(parsedData).pop();
+        if (lastKey) parsedData[lastKey] += `, ${line.trim()}`;
+      }
+    });
+
+    if (spellList.length > 0) {
+      parsedData['Заклинание'] = spellList.join(', ');
+    }
+
+    const nameMatch = text.match(/^([^—]+?)\s*--/);
+    if (nameMatch) parsedData['Название предмета'] = nameMatch[1].trim();
+
+    const levelMatch = text.match(/(\d+)\s+уровня/);
+    if (levelMatch) parsedData['Уровень предмета'] = levelMatch[1].trim();
+
+    const usageMatch = text.match(
+      /(Надевается|Вдевается|Накидывается|Используется|Берется|Опоясывает|Обувается|Кружится).*?\./
+    );
+    if (usageMatch) parsedData['Использование предмета'] = usageMatch[0].trim();
+
+    const orderedParsedData = {
+      'Название предмета': parsedData['Название предмета'],
+      'Уровень предмета': parsedData['Уровень предмета'],
+      'Использование предмета': parsedData['Использование предмета'],
+      Состав: parsedData['Состав'],
+      Заклинание: parsedData['Заклинание'],
+      ...parsedData,
+    };
+
+    return orderedParsedData;
+  };
+
+  /* -------------------------------------------------------------------------- */
+  /* COMMANDS                                                                    */
+  /* -------------------------------------------------------------------------- */
+
   function processCommand(e, text) {
     const commands = [
       {
         cmd: '/victim',
         handler: args => {
           hunting.victim = args.trim();
-          console.log(`>>> Твоя мишень теперь ${hunting.victim}\n`);
+          log.info(`>>> Твоя мишень теперь ${hunting.victim}\n`);
         },
       },
       {
         cmd: '/weapon',
         handler: args => {
           general.weapon = args.trim();
-          console.log(`>>> Твое оружие теперь ${general.weapon}\n`);
+          log.info(`>>> Твое оружие теперь ${general.weapon}\n`);
         },
       },
       {
@@ -737,7 +654,7 @@
         cmd: '/bd',
         handler: args => {
           general.doorToBash = args.trim();
-          console.log(
+          log.info(
             `>>> Поехали, вышибаем по направлению ${general.doorToBash}\n`
           );
           sendCommand(`выбить ${general.doorToBash}`);
@@ -748,12 +665,12 @@
         handler: args => {
           const value = args.trim();
           if (!value) {
-            console.log(`>>> Текущий навык: ${training.skillToTrain}\n`);
+            log.info(`>>> Текущий навык: ${training.skillToTrain}\n`);
             return;
           }
 
           training.skillToTrain = value;
-          console.log(`>>> Навык для тренировки: ${training.skillToTrain}\n`);
+          log.info(`>>> Навык для тренировки: ${training.skillToTrain}\n`);
         },
       },
       {
@@ -762,14 +679,12 @@
           const value = Number(args.trim());
 
           if (!Number.isFinite(value) || value < 300) {
-            console.log(
-              `>>> Укажи задержку в мс, например: /skilldelay 4000\n`
-            );
+            log.warn(`>>> Укажи задержку в мс, например: /skilldelay 4000\n`);
             return;
           }
 
           training.skillDelayMs = value;
-          console.log(
+          log.info(
             `>>> Задержка тренировки установлена: ${training.skillDelayMs} мс\n`
           );
         },
@@ -786,10 +701,9 @@
     return false;
   }
 
-  $('.trigger').off('input.myNamespace');
-  $('.trigger').on('input.myNamespace', (e, text) => {
-    processCommand(e, text);
-  });
+  /* -------------------------------------------------------------------------- */
+  /* MOVEMENT                                                                    */
+  /* -------------------------------------------------------------------------- */
 
   // Функции для перемещения и действий
   function go(where) {
@@ -797,7 +711,7 @@
   }
 
   function scan(where) {
-    sendCommand(`scan ${where}`);
+    sendCommand(`${CONFIG.commands.scan} ${where}`);
   }
 
   function shoot(where) {
@@ -878,7 +792,7 @@
       const hotkeyStorage = JSON.parse(localStorage.hotkey);
       return Boolean(hotkeyStorage?.[hotkey]);
     } catch (error) {
-      console.warn('Не удалось прочитать hotkey из localStorage', error);
+      log.warn('Не удалось прочитать hotkey из localStorage', error);
       return false;
     }
   }
@@ -903,12 +817,16 @@
       e.preventDefault();
       return true;
     } else if (e.code === KeyCodes.Numpad5) {
-      sendCommand('scan');
+      sendCommand(CONFIG.commands.scan);
       e.preventDefault();
       return true;
     }
     return false;
   }
+
+  /* -------------------------------------------------------------------------- */
+  /* BUFFS                                                                       */
+  /* -------------------------------------------------------------------------- */
 
   const buffs = [
     { prop: 'pro', value: 's', command: 'к аура' },
@@ -964,10 +882,215 @@
     });
   }
 
+  /* -------------------------------------------------------------------------- */
+  /* EVENTS                                                                      */
+  /* -------------------------------------------------------------------------- */
+
+  const triggers = [
+    {
+      pattern: /^Попробуй еще раз.$/,
+      action: () => {
+        log.info('>>> Повторяем поджиг зелья.');
+        sendCommand(CONFIG.brewing.igniteRose);
+        sendCommand(CONFIG.brewing.useCauldron);
+      },
+    },
+    {
+      pattern:
+        /^Ты очень устала. Перед следующей варкой надо немного отдохнуть.$/,
+      action: () => {
+        log.info('>>> Персонаж устал, начинаем восстановление.');
+        brewing.isExhausted = true;
+        sendCommand(CONFIG.brewing.refreshSpell);
+      },
+    },
+    {
+      pattern: /^Усталость проходит... но лишь на мгновение.$/,
+      action: () => {
+        log.info('>>> Восстанавливаем энергию.');
+        sendCommand(CONFIG.brewing.refreshSpell);
+      },
+    },
+    {
+      pattern: /^Усталость проходит, и ты готова к новым свершениям.$/,
+      action: () => {
+        log.info('>>> Полностью восстановились, продолжаем варку.');
+        brewing.isExhausted = false;
+        sendCommand(CONFIG.brewing.createInCauldron);
+        log.debug('>>> brewing.isActive1:', brewing.isActive);
+        if (brewing.isActive) startBrewing();
+      },
+    },
+    {
+      pattern:
+        /^Используя специализированные знания зельеварения, ты изготавливаешь бурлящее снадобье мудреца!$/,
+      action: () => {
+        sendCommand(CONFIG.brewing.takePotionFromCauldron);
+        sendCommand(CONFIG.brewing.drinkPotion);
+        sendCommand(CONFIG.brewing.createInCauldron);
+        log.info('>>> Зелье готово!');
+        log.debug('>>> brewing.isActive2:', brewing.isActive);
+        if (brewing.isActive) startBrewing(); // Автоматически варим следующее зелье
+      },
+    },
+    {
+      pattern:
+        /^Портативный котел для зелий внезапно раскаляется докрасна, и что-то внутри гулко взрывается!$/,
+      action: () => {
+        log.info('>>> Котел взорвался! начинаем сначало.');
+        sendCommand(CONFIG.brewing.createInCauldron);
+        log.debug('>>> brewing.isActive3:', brewing.isActive);
+        if (brewing.isActive) startBrewing();
+      },
+    },
+    {
+      pattern: /ВЫБИЛ.? у тебя .*, и он.? пада.?т .*!/,
+      action: () => {
+        log.info('>>> Подбираю оружие с пола, очищаю буфер команд.');
+        sendCommand(CONFIG.commands.clearBuffer);
+        sendCommand(`взять ${general.weapon}|надеть ${general.weapon}`);
+      },
+    },
+    {
+      pattern: /Ты хочешь есть\./,
+      action: () => {
+        log.info('>>> Сейчас бы шашлычка...');
+        sendCommand(`${CONFIG.commands.foodPrefix} ${general.foodItem}`);
+      },
+    },
+    {
+      pattern: /Ты хочешь пить\./,
+      action: () => {
+        log.info('>>> Сейчас бы вискарика...');
+        sendCommand(CONFIG.commands.drink);
+      },
+    },
+    {
+      pattern: /У тебя не хватает энергии/,
+      action: handleLowEnergy,
+    },
+  ];
+
+  document.addEventListener(
+    'click',
+    () => {
+      playAlertSound();
+    },
+    { once: true }
+  );
+
+  $('#rpc-events').off('rpc-prompt.myNamespace');
+  $('#rpc-events').on('rpc-prompt.myNamespace', (e, data) => {
+    if (!DEBUG_MODE) return;
+
+    log.debug('RAW rpc-prompt snapshot:', JSON.parse(JSON.stringify(data)));
+
+    setTimeout(() => {
+      log.debug(
+        'window.mudprompt snapshot:',
+        JSON.parse(JSON.stringify(window.mudprompt || {}))
+      );
+    }, 0);
+  });
+
+  // Обработка текстовых триггеров
+  $('.trigger').off('text.myNamespace');
+  $('.trigger').on('text.myNamespace', (e, text) => {
+    log.debug('Получен текст из инпута:', text);
+
+    if (text.includes(CONFIG.alerts.typhoenText)) {
+      log.warn(
+        '>>> Обнаружено упоминание Тайфоэна! Воспроизводим звуковой сигнал.'
+      );
+      playAlertSound();
+    }
+
+    if (text.trim() === CONFIG.commands.brewStartText) {
+      startBrewing();
+      e.preventDefault();
+    } else if (text.trim() === CONFIG.commands.brewStopText) {
+      stopBrewing();
+      e.preventDefault();
+    }
+
+    if (isInvalidLine(text)) {
+      console.log('⏩ Пропущена ненужная строка.');
+      return;
+    }
+
+    if (text.startsWith('к опоз ')) {
+      accumulatedText = text;
+
+      clearTimer('parse');
+    } else {
+      accumulatedText += `\n${text}`;
+    }
+
+    clearTimer('parse');
+    timers.parse = setTimeout(() => {
+      const cleanedText = accumulatedText
+        .split('\n')
+        .filter(line => !line.trim().startsWith('к опоз'))
+        .join('\n');
+
+      const parsedData = parseInputText(cleanedText);
+      accumulatedText = '';
+
+      if (Object.keys(parsedData).length > 0) {
+        saveToBackend(parsedData);
+      } else {
+        console.log('⚠️ Данные не были распознаны.');
+      }
+
+      timers.parse = null;
+    }, 500);
+
+    if (hunting.isActive) {
+      handleHuntingState(text);
+    }
+
+    if (training.isActive) {
+      handleTrainingState(text);
+    }
+
+    for (const { pattern, action } of triggers) {
+      if (pattern.test(text)) {
+        action();
+        break;
+      }
+    }
+
+    if (hunting.isInCombat) {
+      const lowerText = text.toLowerCase();
+      const victimName = hunting.victim.toLowerCase();
+
+      if (lowerText.includes(`${victimName} уже труп`)) {
+        log.info(`>>> Жертва ${hunting.victim} мертва!`);
+        sendCommand(`взять ${hunting.lootItem}`);
+        stopCombat('жертва убита');
+      } else if (lowerText.includes('ты не видишь здесь такого')) {
+        log.warn('>>> Жертва недоступна для атаки.');
+        stopCombat('жертва недоступна');
+      } else if (lowerText.includes('вы не можете сражаться')) {
+        log.warn('>>> Вы не можете продолжать бой.');
+        stopCombat('бой запрещен');
+      } else if (lowerText.includes('вы умерли')) {
+        log.warn('>>> Вы погибли.');
+        stopCombat('персонаж погиб');
+      }
+    }
+  });
+
+  // Подписка на пользовательский ввод
+  $('.trigger').off('input.myNamespace');
+  $('.trigger').on('input.myNamespace', (e, text) => {
+    processCommand(e, text);
+  });
+
   // Обработчик нажатия клавиш
   $('#input input').off('keydown.myNamespace');
   $('#input input').on('keydown.myNamespace', e => {
-    console.log(
+    log.debug(
       `Key pressed: e.code=${e.code}, e.key=${e.key}, e.keyCode=${e.keyCode}`
     );
 
@@ -1013,8 +1136,7 @@
         //  items.forEach(item => sendCommand(`к огнеупорность ${item}`));
 
         {
-          const commands = ['гиг', 'щит', 'брон', 'неист'];
-          const targets = ['демон', 'волк'];
+          const { commands, targets } = CONFIG.tabActions;
           targets.forEach(target => {
             commands.forEach(command => {
               sendCommand(`к ${command} ${target}`);
@@ -1023,7 +1145,7 @@
         }
         break;
       case KeyCodes.NumpadAdd:
-        console.log(
+        log.info(
           `>>> Старт тренировки: ${training.skillToTrain}, задержка ${training.skillDelayMs} мс`
         );
         clearTimer('training');
@@ -1043,25 +1165,22 @@
         break;
       case KeyCodes.NumpadSubtract:
         resetTrainingState();
-        console.log('Цикл остановлен при нажатии минуса');
+        log.info('Цикл остановлен при нажатии минуса');
         e.preventDefault();
         break;
       case KeyCodes.Home:
-        sendCommand('взять снад сумка:лечение');
-        sendCommand('осуш снад');
+        CONFIG.quickActions.healPotion.forEach(sendCommand);
         e.preventDefault();
         break;
       case KeyCodes.End:
-        sendCommand('взять один сумка:лечение');
-        sendCommand('надеть один');
-        sendCommand('к леч');
+        CONFIG.quickActions.healCast.forEach(sendCommand);
         e.preventDefault();
         break;
       case KeyCodes.NumpadMultiply:
         resetHuntingState();
         hunting.isActive = true;
-        sendCommand(`где ${hunting.victim}`);
-        console.log('Отправлена команда "где victim".');
+        sendCommand(`${CONFIG.commands.wherePrefix} ${hunting.victim}`);
+        log.info('Отправлена команда "где victim".');
         e.preventDefault();
         break;
       default:
