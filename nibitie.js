@@ -18,6 +18,12 @@
       speechDelayMs: 100,
     },
 
+    parser: {
+      enabled: true,
+      debounceMs: 500,
+      backendUrl: 'http://localhost:3001/api/items',
+    },
+
     commands: {
       brewStartText: 'сказ варить',
       brewStopText: 'сказ стоп',
@@ -56,9 +62,9 @@
     },
 
     hunting: {
-      defaultAttackCommand: 'к вред',
-      defaultVictim: 'скрипач',
-      defaultLoot: 'струна',
+      defaultAttackCommand: 'к стен',
+      defaultVictim: 'толстая бага',
+      defaultLoot: 'кусочек',
       attackIntervalMs: 3000,
     },
 
@@ -164,7 +170,7 @@
   /* -------------------------------------------------------------------------- */
 
   function escapeRegExp(str) {
-    return String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return String(str).replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
   }
 
   const sendCommand = command => {
@@ -173,7 +179,7 @@
   };
 
   function playAlertSound() {
-    if (!window.speechSynthesis) {
+    if (!globalThis.speechSynthesis) {
       log.error('Браузер не поддерживает синтез речи.');
       return;
     }
@@ -184,11 +190,11 @@
     utterance.rate = 1;
     utterance.pitch = 1;
 
-    window.speechSynthesis.cancel();
+    globalThis.speechSynthesis.cancel();
     clearTimer('speech');
 
     timers.speech = setTimeout(() => {
-      window.speechSynthesis.speak(utterance);
+      globalThis.speechSynthesis.speak(utterance);
       timers.speech = null;
     }, CONFIG.alerts.speechDelayMs);
   }
@@ -232,6 +238,7 @@
     }
 
     hunting.isInCombat = false;
+    hunting.isInspecting = false;
     clearTimer('attack');
   }
 
@@ -300,6 +307,33 @@
     }, CONFIG.training.energyRecoveryDelayMs);
   }
 
+  function startTraining() {
+    clearTimer('training');
+    clearTimer('trainingUnlock');
+    clearTimer('energyRecovery');
+    clearTimer('energyWakeUp');
+
+    training.isActive = true;
+    training.isStarPressed = true;
+    training.isMasteryAchieved = false;
+    training.skillCount = 0;
+    energy.isLow = false;
+    general.isActionLocked = false;
+
+    log.info(
+      `>>> Старт тренировки: ${training.skillToTrain}, задержка ${training.skillDelayMs} мс`
+    );
+
+    scheduleTrainingTick(0);
+  }
+
+  function stopTraining(reason = 'без указания причины') {
+    if (!training.isActive) return;
+
+    resetTrainingState();
+    log.info(`>>> Тренировка остановлена: ${reason}`);
+  }
+
   function scheduleTrainingTick(delay = null) {
     clearTimer('training');
 
@@ -360,26 +394,33 @@
     }, CONFIG.training.unlockDelayMs);
   }
 
-  function checkMasteryAndRepeat(text) {
-    log.debug('Функция checkMasteryAndRepeat вызвана с текстом:', text);
-
-    if (text.includes('мастерски владеешь')) {
-      sendCommand(CONFIG.commands.clearBuffer);
-      log.info('Мастерство достигнуто. Очищаем буфер.');
-      training.isMasteryAchieved = true;
-      resetTrainingState();
-    }
-  }
-
-  function handleTrainingState(text) {
-    if (text.includes('У тебя не хватает энергии')) {
-      handleLowEnergy();
+  function handleTrainingMastery(text) {
+    if (!training.isActive || !training.isStarPressed) {
       return;
     }
 
-    if (training.isActive && training.isStarPressed) {
-      checkMasteryAndRepeat(text);
+    if (!text.includes('мастерски владеешь')) {
+      return;
     }
+
+    log.debug('Обнаружено сообщение о достижении мастерства:', text);
+    sendCommand(CONFIG.commands.clearBuffer);
+    log.info('Мастерство достигнуто. Очищаем буфер.');
+    training.isMasteryAchieved = true;
+    resetTrainingState();
+  }
+
+  function handleTrainingLowEnergy(text) {
+    if (!text.includes('У тебя не хватает энергии')) {
+      return;
+    }
+
+    handleLowEnergy();
+  }
+
+  function handleTrainingState(text) {
+    handleTrainingLowEnergy(text);
+    handleTrainingMastery(text);
   }
 
   /* -------------------------------------------------------------------------- */
@@ -416,7 +457,10 @@
       !text.toLowerCase().includes('ты уже здесь')
     ) {
       const safeVictimLocation = escapeRegExp(victimLocation);
-      const pattern = new RegExp(`'${safeVictimLocation}':\\s*(\\S+)`, 'i');
+      const pattern = new RegExp(
+        String.raw`'${safeVictimLocation}':\s*(\S+)`,
+        'i'
+      );
       const match = text.match(pattern);
       const locationCode = match?.[1];
 
@@ -465,10 +509,7 @@
       hunting.isInCombat = true;
 
       clearTimer('attack');
-      timers.attack = setTimeout(() => {
-        timers.attack = null;
-        continueAttacking();
-      }, CONFIG.hunting.attackIntervalMs);
+      continueAttacking();
 
       return;
     }
@@ -480,8 +521,12 @@
   function continueAttacking() {
     clearTimer('attack');
 
-    if (!hunting.isInCombat) return;
+    if (!hunting.isInCombat) {
+      log.debug('>>> continueAttacking остановлен: hunting.isInCombat=false');
+      return;
+    }
 
+    log.debug('>>> continueAttacking: отправляю атаку', hunting.victim);
     sendCommand(`${hunting.attackCommand} ${hunting.victim}`);
 
     timers.attack = setTimeout(() => {
@@ -531,12 +576,12 @@
       !data['Название предмета'] ||
       !data['Уровень предмета']
     ) {
-      console.log('⚠️ Неполные данные, не отправляем.');
+      log.warn('⚠️ Неполные данные, не отправляем.');
       return;
     }
 
     try {
-      const response = await fetch('http://localhost:3001/api/items', {
+      const response = await fetch(CONFIG.parser.backendUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data }),
@@ -547,20 +592,20 @@
         echo(
           `✅ Предмет успешно добавлен: ${data['Название предмета']} (${data['Уровень предмета']} ур.)`
         );
-        console.log('✅ Предмет отправлен на сервер:', result);
+        log.info('✅ Предмет отправлен на сервер:', result);
       } else {
         echo(result.message);
-        console.warn('❌ Ошибка сервера:', result.message || result);
+        log.warn('❌ Ошибка сервера:', result.message || result);
       }
     } catch (error) {
-      console.error('🚫 Ошибка отправки:', error);
+      log.error('🚫 Ошибка отправки:', error);
       echo(error);
     }
   };
 
   const isInvalidLine = line =>
     line.trim() === '' ||
-    line.match(/^\<\d+\/\д+зд \д+\/\д+ман \д+\/\д+шг \д+оп Вых/);
+    line.match(/^<\d+\/\d+зд \d+\/\d+ман \d+\/\d+шг \d+оп Вых/);
 
   // Парсер текста предметов
   const parseInputText = text => {
@@ -575,7 +620,7 @@
         const value = keyValueMatch[2].trim();
 
         // "Заклинание 118 уровня"
-        if (/^Заклинани(е|я)\s+\d+\s+уровня:?$/i.test(key.trim())) {
+        if (/^Заклинани[ея]\s+\d+\s+уровня:?$/i.test(key.trim())) {
           key = 'Заклинание';
           spellList.push(value);
         } else {
@@ -872,7 +917,7 @@
   ];
 
   function handleBuffs() {
-    const prompt = window.mudprompt || {};
+    const prompt = globalThis.mudprompt || {};
 
     buffs.forEach(({ prop, value, command }) => {
       const promptProp = prompt[prop];
@@ -880,6 +925,174 @@
         sendCommand(command);
       }
     });
+  }
+
+  /* -------------------------------------------------------------------------- */
+  /* EVENT HELPERS                                                               */
+  /* -------------------------------------------------------------------------- */
+
+  function handleTyphoenAlert(text) {
+    if (!text.includes(CONFIG.alerts.typhoenText)) {
+      return;
+    }
+
+    log.warn(
+      '>>> Обнаружено упоминание Тайфоэна! Воспроизводим звуковой сигнал.'
+    );
+    playAlertSound();
+  }
+
+  function handleBrewingCommands(e, text) {
+    const trimmedText = text.trim();
+
+    if (trimmedText === CONFIG.commands.brewStartText) {
+      startBrewing();
+      e.preventDefault();
+      return true;
+    }
+
+    if (trimmedText === CONFIG.commands.brewStopText) {
+      stopBrewing();
+      e.preventDefault();
+      return true;
+    }
+
+    return false;
+  }
+
+  function getCleanedParsedText(text) {
+    return text
+      .split('\n')
+      .filter(
+        line =>
+          !line.trim().startsWith('к опоз') &&
+          !line.trim().startsWith('к опознание')
+      )
+      .join('\n');
+  }
+
+  function flushParsedText() {
+    const cleanedText = getCleanedParsedText(accumulatedText);
+    const parsedData = parseInputText(cleanedText);
+
+    accumulatedText = '';
+
+    if (Object.keys(parsedData).length > 0) {
+      saveToBackend(parsedData);
+    } else {
+      log.warn('⚠️ Данные не были распознаны.');
+    }
+
+    timers.parse = null;
+  }
+
+  function updateAccumulatedText(text) {
+    if (text.startsWith('к опоз ') || text.startsWith('к опознание ')) {
+      accumulatedText = text;
+      clearTimer('parse');
+      return;
+    }
+
+    accumulatedText += `\n${text}`;
+  }
+
+  function handleParserText(text) {
+    if (!CONFIG.parser.enabled) {
+      clearTimer('parse');
+      accumulatedText = '';
+      return true;
+    }
+
+    if (isInvalidLine(text)) {
+      log.info('⏩ Пропущена ненужная строка.');
+      return false;
+    }
+
+    updateAccumulatedText(text);
+
+    clearTimer('parse');
+    timers.parse = setTimeout(() => {
+      flushParsedText();
+    }, CONFIG.parser.debounceMs);
+
+    return true;
+  }
+
+  function runTextTriggers(text) {
+    for (const { pattern, action } of triggers) {
+      if (pattern.test(text)) {
+        action();
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  function handleCombatState(text) {
+    if (!hunting.isInCombat) {
+      return;
+    }
+
+    const lowerText = text.toLowerCase();
+    const victimName = hunting.victim.toLowerCase();
+
+    if (lowerText.includes(`${victimName} уже труп`)) {
+      log.info(`>>> Жертва ${hunting.victim} мертва!`);
+      sendCommand(`взять ${hunting.lootItem}`);
+      stopCombat('жертва убита');
+      return;
+    }
+
+    if (
+      lowerText.includes('ты не видишь здесь такого') ||
+      lowerText.includes(
+        'увы, никого с таким именем в этой местности обнаружить не удается'
+      )
+    ) {
+      log.warn('>>> Сработал stop по сообщению о недоступной цели.');
+      log.debug('>>> lowerText:', lowerText);
+      stopCombat('жертва недоступна');
+      return;
+    }
+
+    if (lowerText.includes('вы не можете сражаться')) {
+      log.warn('>>> Вы не можете продолжать бой.');
+      stopCombat('бой запрещен');
+      return;
+    }
+
+    if (lowerText.includes('вы умерли')) {
+      log.warn('>>> Вы погибли.');
+      stopCombat('персонаж погиб');
+    }
+  }
+
+  function handleGameStates(text) {
+    if (hunting.isActive) {
+      handleHuntingState(text);
+    }
+
+    if (training.isActive) {
+      handleTrainingState(text);
+    }
+
+    handleCombatState(text);
+  }
+
+  function handleIncomingText(e, text) {
+    log.debug('Получен текст из инпута:', text);
+
+    handleTyphoenAlert(text);
+    handleBrewingCommands(e, text);
+
+    const shouldContinue = handleParserText(text);
+    if (!shouldContinue) {
+      return;
+    }
+
+    handleGameStates(text);
+    runTextTriggers(text);
   }
 
   /* -------------------------------------------------------------------------- */
@@ -983,12 +1196,12 @@
   $('#rpc-events').on('rpc-prompt.myNamespace', (e, data) => {
     if (!DEBUG_MODE) return;
 
-    log.debug('RAW rpc-prompt snapshot:', JSON.parse(JSON.stringify(data)));
+    log.debug('RAW rpc-prompt snapshot:', structuredClone(data));
 
     setTimeout(() => {
       log.debug(
-        'window.mudprompt snapshot:',
-        JSON.parse(JSON.stringify(window.mudprompt || {}))
+        'mudprompt snapshot:',
+        structuredClone(globalThis.mudprompt || {})
       );
     }, 0);
   });
@@ -996,89 +1209,7 @@
   // Обработка текстовых триггеров
   $('.trigger').off('text.myNamespace');
   $('.trigger').on('text.myNamespace', (e, text) => {
-    log.debug('Получен текст из инпута:', text);
-
-    if (text.includes(CONFIG.alerts.typhoenText)) {
-      log.warn(
-        '>>> Обнаружено упоминание Тайфоэна! Воспроизводим звуковой сигнал.'
-      );
-      playAlertSound();
-    }
-
-    if (text.trim() === CONFIG.commands.brewStartText) {
-      startBrewing();
-      e.preventDefault();
-    } else if (text.trim() === CONFIG.commands.brewStopText) {
-      stopBrewing();
-      e.preventDefault();
-    }
-
-    if (isInvalidLine(text)) {
-      console.log('⏩ Пропущена ненужная строка.');
-      return;
-    }
-
-    if (text.startsWith('к опоз ')) {
-      accumulatedText = text;
-
-      clearTimer('parse');
-    } else {
-      accumulatedText += `\n${text}`;
-    }
-
-    clearTimer('parse');
-    timers.parse = setTimeout(() => {
-      const cleanedText = accumulatedText
-        .split('\n')
-        .filter(line => !line.trim().startsWith('к опоз'))
-        .join('\n');
-
-      const parsedData = parseInputText(cleanedText);
-      accumulatedText = '';
-
-      if (Object.keys(parsedData).length > 0) {
-        saveToBackend(parsedData);
-      } else {
-        console.log('⚠️ Данные не были распознаны.');
-      }
-
-      timers.parse = null;
-    }, 500);
-
-    if (hunting.isActive) {
-      handleHuntingState(text);
-    }
-
-    if (training.isActive) {
-      handleTrainingState(text);
-    }
-
-    for (const { pattern, action } of triggers) {
-      if (pattern.test(text)) {
-        action();
-        break;
-      }
-    }
-
-    if (hunting.isInCombat) {
-      const lowerText = text.toLowerCase();
-      const victimName = hunting.victim.toLowerCase();
-
-      if (lowerText.includes(`${victimName} уже труп`)) {
-        log.info(`>>> Жертва ${hunting.victim} мертва!`);
-        sendCommand(`взять ${hunting.lootItem}`);
-        stopCombat('жертва убита');
-      } else if (lowerText.includes('ты не видишь здесь такого')) {
-        log.warn('>>> Жертва недоступна для атаки.');
-        stopCombat('жертва недоступна');
-      } else if (lowerText.includes('вы не можете сражаться')) {
-        log.warn('>>> Вы не можете продолжать бой.');
-        stopCombat('бой запрещен');
-      } else if (lowerText.includes('вы умерли')) {
-        log.warn('>>> Вы погибли.');
-        stopCombat('персонаж погиб');
-      }
-    }
+    handleIncomingText(e, text);
   });
 
   // Подписка на пользовательский ввод
@@ -1145,27 +1276,11 @@
         }
         break;
       case KeyCodes.NumpadAdd:
-        log.info(
-          `>>> Старт тренировки: ${training.skillToTrain}, задержка ${training.skillDelayMs} мс`
-        );
-        clearTimer('training');
-        clearTimer('trainingUnlock');
-        clearTimer('energyRecovery');
-        clearTimer('energyWakeUp');
-
-        training.isActive = true;
-        training.isStarPressed = true;
-        training.isMasteryAchieved = false;
-        training.skillCount = 0;
-        energy.isLow = false;
-        general.isActionLocked = false;
-
-        scheduleTrainingTick(0);
+        startTraining();
         e.preventDefault();
         break;
       case KeyCodes.NumpadSubtract:
-        resetTrainingState();
-        log.info('Цикл остановлен при нажатии минуса');
+        stopTraining('нажата клавиша минус');
         e.preventDefault();
         break;
       case KeyCodes.Home:
