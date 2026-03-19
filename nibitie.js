@@ -66,6 +66,39 @@
       defaultVictim: 'толстая бага',
       defaultLoot: 'кусочек',
       attackIntervalMs: 3000,
+
+      questTemplates: [
+        {
+          key: 'rock-bards',
+          match: ['рок-менестрелей', 'концерт тяжелой музыки'],
+          victims: ['рок-менестрель'],
+          loot: 'листовка',
+        },
+        {
+          key: 'preachers',
+          match: ['бродячих проповедников', 'обратить всю территорию'],
+          victims: ['проповедник'],
+          loot: 'страница',
+        },
+        {
+          key: 'musicians',
+          match: ['начинающих музыкантов', 'внезапно обрушилась'],
+          victims: ['музыкант', 'певица', 'скрипач'],
+          loot: 'струна',
+        },
+        {
+          key: 'bigots',
+          match: ['группа ханжей', 'оскорбляет чувства верующих'],
+          victims: ['ханжа'],
+          loot: 'крупица',
+        },
+        {
+          key: 'bugs',
+          match: ['ткань мироздания', 'аномалии'],
+          victims: ['крашащая бага', 'толстая бага', 'ксерящая бага'],
+          loot: 'кусочек',
+        },
+      ],
     },
 
     general: {
@@ -105,17 +138,20 @@
       isExhausted: false, // Флаг усталости
     },
     hunting: {
-      isActive: false, // Флаг для отслеживания процесса охоты
+      isActive: false,
       attackCommand: CONFIG.hunting.defaultAttackCommand,
       victim: CONFIG.hunting.defaultVictim,
+      victims: [CONFIG.hunting.defaultVictim],
+      victimIndex: 0,
+      currentVictim: CONFIG.hunting.defaultVictim,
       lootItem: CONFIG.hunting.defaultLoot,
-      victimLocation: '', // Местоположение жертвы
-      isVictimLocationFound: false, // Флаг, что местоположение жертвы найдено
-      isLocationCodeFound: false, // Флаг, что код местности найден
-      locationCode: '', // Код местности
-      isInspecting: false, // Флаг наблюдения
-      isVictimKilled: false, // Флаг, указывающий, что жертва убита
-      isInCombat: false, // Флаг для отслеживания состояния боя
+      victimLocation: '',
+      isVictimLocationFound: false,
+      isLocationCodeFound: false,
+      locationCode: '',
+      isInspecting: false,
+      isVictimKilled: false,
+      isInCombat: false,
     },
     training: {
       isActive: false, // Переменная для отслеживания процесса обучения
@@ -178,6 +214,79 @@
     send(command);
   };
 
+  function setHuntingQuest({ victims, loot }) {
+    if (!Array.isArray(victims) || victims.length === 0) {
+      return;
+    }
+
+    hunting.victims = victims.map(item => item.toLowerCase());
+    hunting.victimIndex = 0;
+    hunting.victim = hunting.victims[0];
+    hunting.currentVictim = hunting.victim;
+    hunting.lootItem = loot;
+
+    log.info(
+      `>>> Русалочий квест распознан: цели = ${hunting.victims.join(', ')}, лут = ${hunting.lootItem}`
+    );
+  }
+
+  function switchToNextVictim(reason = 'не указана') {
+    const nextIndex = hunting.victimIndex + 1;
+
+    if (nextIndex >= hunting.victims.length) {
+      log.warn(
+        `>>> Цели закончились, переключаться больше некуда. Причина: ${reason}`
+      );
+      hunting.isActive = false;
+      stopCombat('все цели проверены');
+      return false;
+    }
+
+    hunting.victimIndex = nextIndex;
+    hunting.victim = hunting.victims[nextIndex];
+    hunting.currentVictim = hunting.victim;
+
+    hunting.victimLocation = '';
+    hunting.isVictimLocationFound = false;
+    hunting.isLocationCodeFound = false;
+    hunting.locationCode = '';
+    hunting.isInspecting = false;
+    hunting.isVictimKilled = false;
+
+    log.info(
+      `>>> Переключаюсь на следующую цель: ${hunting.victim}. Причина: ${reason}`
+    );
+    sendCommand(`${CONFIG.commands.wherePrefix} ${hunting.victim}`);
+    return true;
+  }
+
+  function detectRusalkQuest(text) {
+    const lowerText = text.toLowerCase();
+
+    const matchedQuest = CONFIG.hunting.questTemplates.find(template =>
+      template.match.every(fragment =>
+        lowerText.includes(fragment.toLowerCase())
+      )
+    );
+
+    if (!matchedQuest) {
+      return false;
+    }
+
+    setHuntingQuest({
+      victims: matchedQuest.victims,
+      loot: matchedQuest.loot,
+    });
+
+    return true;
+  }
+
+  function getMatchedVictimFromText(text) {
+    const lowerText = text.toLowerCase();
+
+    return hunting.victims.find(victim => lowerText.includes(victim));
+  }
+
   function playAlertSound() {
     if (!globalThis.speechSynthesis) {
       log.error('Браузер не поддерживает синтез речи.');
@@ -228,6 +337,8 @@
     hunting.isInspecting = false;
     hunting.isVictimKilled = false;
     hunting.isInCombat = false;
+    hunting.victimIndex = 0;
+    hunting.currentVictim = hunting.victim;
 
     clearTimer('attack');
   }
@@ -432,19 +543,53 @@
     if (hunting.isVictimLocationFound) return;
 
     const victimName = hunting.victim.toLowerCase();
-    if (text.toLowerCase().includes(victimName)) {
-      const parts = text.toLowerCase().split(victimName);
-      if (parts.length > 1) {
-        hunting.victimLocation = parts[1].trim();
-        log.info('Местоположение жертвы:', hunting.victimLocation);
-        hunting.isVictimLocationFound = true;
-        sendCommand(`${CONFIG.commands.pathPrefix} ${hunting.victimLocation}`);
-      } else {
-        log.warn('Не удалось найти местоположение.');
-      }
-    } else {
-      log.warn('Имя жертвы не найдено.');
+    const lowerText = text.toLowerCase();
+
+    if (lowerText.includes(`ты не находишь ${victimName}`)) {
+      log.warn(`>>> Цель ${victimName} не найдена через "где".`);
+      switchToNextVictim('where не нашел цель');
+      return;
     }
+
+    if (
+      lowerText.includes(
+        'увы, никого с таким именем в этой местности обнаружить не удается'
+      )
+    ) {
+      log.warn(`>>> Цель ${victimName} недоступна через "где".`);
+      switchToNextVictim('where сообщил, что цель недоступна');
+      return;
+    }
+
+    if (!lowerText.includes(victimName)) {
+      return;
+    }
+
+    const parts = lowerText.split(victimName);
+    if (parts.length <= 1) {
+      log.warn('Не удалось найти местоположение.');
+      return;
+    }
+
+    const rawLocation = parts[1].trim();
+    const normalizedLocation = rawLocation.replace(
+      /^[\s.,:;!?-]+|[\s.,:;!?-]+$/g,
+      ''
+    );
+
+    if (!normalizedLocation || normalizedLocation === '.') {
+      log.warn(
+        `>>> После имени цели не удалось извлечь корректную местность: "${rawLocation}"`
+      );
+      switchToNextVictim('не удалось распарсить местность');
+      return;
+    }
+
+    hunting.victimLocation = normalizedLocation;
+    hunting.isVictimLocationFound = true;
+
+    log.info('Местоположение жертвы:', hunting.victimLocation);
+    sendCommand(`${CONFIG.commands.pathPrefix} ${hunting.victimLocation}`);
   }
 
   // Функция для поиска кода местности
@@ -482,40 +627,41 @@
 
   // Функция для обработки встречи с жертвой
   function handleVictimEncounter(text) {
-    const victimName = hunting.victim.toLowerCase();
     const lowerText = text.toLowerCase();
+    const matchedVictim = getMatchedVictimFromText(lowerText);
 
-    if (lowerText.includes(`${victimName} уже труп`)) {
-      log.info(`>>> Жертва ${hunting.victim} мертва! Останавливаем охоту.`);
+    if (!matchedVictim) {
+      log.warn('>>> Ни одна из целей не найдена на текущей локации.');
+      hunting.isInspecting = false;
+      return;
+    }
+
+    if (lowerText.includes(`${matchedVictim} уже труп`)) {
+      log.info(`>>> Жертва ${matchedVictim} уже мертва! Останавливаем охоту.`);
       hunting.isActive = false;
       hunting.isInspecting = false;
       hunting.isVictimKilled = true;
+      hunting.currentVictim = matchedVictim;
       stopCombat('жертва уже мертва');
       sendCommand(CONFIG.commands.look);
       return;
     }
 
-    if (lowerText.includes(victimName)) {
-      log.info(`>>> Жертва ${hunting.victim} тут!`);
+    hunting.currentVictim = matchedVictim;
+    log.info(`>>> Жертва ${hunting.currentVictim} тут!`);
 
-      if (lowerText.includes('сбегает')) {
-        log.info('>>> Жертва пытается сбежать, продолжаем преследование...');
-        sendCommand(`${CONFIG.commands.wherePrefix} ${hunting.victim}`);
-        return;
-      }
-
-      log.info(`>>> Атакую жертву: ${hunting.victim}`);
-      hunting.isInspecting = false;
-      hunting.isInCombat = true;
-
-      clearTimer('attack');
-      continueAttacking();
-
+    if (lowerText.includes('сбегает')) {
+      log.info('>>> Жертва пытается сбежать, продолжаем преследование...');
+      sendCommand(`${CONFIG.commands.wherePrefix} ${hunting.currentVictim}`);
       return;
     }
 
-    log.warn('>>> Жертва не найдена на текущей локации.');
+    log.info(`>>> Атакую жертву: ${hunting.currentVictim}`);
     hunting.isInspecting = false;
+    hunting.isInCombat = true;
+
+    clearTimer('attack');
+    continueAttacking();
   }
 
   function continueAttacking() {
@@ -526,8 +672,10 @@
       return;
     }
 
-    log.debug('>>> continueAttacking: отправляю атаку', hunting.victim);
-    sendCommand(`${hunting.attackCommand} ${hunting.victim}`);
+    const target = hunting.currentVictim || hunting.victim;
+
+    log.debug('>>> continueAttacking: отправляю атаку', target);
+    sendCommand(`${hunting.attackCommand} ${target}`);
 
     timers.attack = setTimeout(() => {
       continueAttacking();
@@ -556,7 +704,7 @@
       hunting.isLocationCodeFound &&
       hunting.isInspecting
     ) {
-      if (text.toLowerCase().includes(`${hunting.victim}`)) {
+      if (getMatchedVictimFromText(text)) {
         log.info('>>> В локации жертвы, осматриваюсь.');
         handleVictimEncounter(text);
       }
@@ -668,8 +816,23 @@
       {
         cmd: '/victim',
         handler: args => {
-          hunting.victim = args.trim();
-          log.info(`>>> Твоя мишень теперь ${hunting.victim}\n`);
+          const value = args
+            .split(',')
+            .map(item => item.trim().toLowerCase())
+            .filter(Boolean);
+
+          if (value.length === 0) {
+            log.info(
+              `>>> Текущие цели: ${hunting.victims.join(', ')}, лут: ${hunting.lootItem}\n`
+            );
+            return;
+          }
+
+          hunting.victims = value;
+          hunting.victim = value[0];
+          hunting.currentVictim = value[0];
+
+          log.info(`>>> Цели охоты: ${hunting.victims.join(', ')}\n`);
         },
       },
       {
@@ -1035,10 +1198,10 @@
     }
 
     const lowerText = text.toLowerCase();
-    const victimName = hunting.victim.toLowerCase();
+    const victimName = (hunting.currentVictim || hunting.victim).toLowerCase();
 
     if (lowerText.includes(`${victimName} уже труп`)) {
-      log.info(`>>> Жертва ${hunting.victim} мертва!`);
+      log.info(`>>> Жертва ${victimName} мертва!`);
       sendCommand(`взять ${hunting.lootItem}`);
       stopCombat('жертва убита');
       return;
@@ -1050,9 +1213,15 @@
         'увы, никого с таким именем в этой местности обнаружить не удается'
       )
     ) {
-      log.warn('>>> Сработал stop по сообщению о недоступной цели.');
+      log.warn('>>> Текущая цель недоступна.');
       log.debug('>>> lowerText:', lowerText);
+
       stopCombat('жертва недоступна');
+
+      if (hunting.isActive && hunting.victims.length > 1) {
+        switchToNextVictim('цель пропала или недоступна в бою');
+      }
+
       return;
     }
 
@@ -1082,6 +1251,8 @@
 
   function handleIncomingText(e, text) {
     log.debug('Получен текст из инпута:', text);
+
+    detectRusalkQuest(text);
 
     handleTyphoenAlert(text);
     handleBrewingCommands(e, text);
