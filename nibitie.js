@@ -62,9 +62,9 @@
     },
 
     hunting: {
-      defaultAttackCommand: 'к стен',
-      defaultVictim: 'толстая бага',
-      defaultLoot: 'кусочек',
+      defaultAttackCommand: 'к вред',
+      defaultVictim: 'проповедник',
+      defaultLoot: 'страница',
       attackIntervalMs: 3000,
 
       questTemplates: [
@@ -83,7 +83,7 @@
         {
           key: 'musicians',
           match: ['начинающих музыкантов', 'внезапно обрушилась'],
-          victims: ['музыкант', 'певица', 'скрипач'],
+          victims: ['певица', 'скрипач', 'музыкант'],
           loot: 'струна',
         },
         {
@@ -152,6 +152,10 @@
       isInspecting: false,
       isVictimKilled: false,
       isInCombat: false,
+
+      cycleCount: 0, // сколько полных кругов уже завершили
+      maxCycles: 2, // 1 основной + 1 контрольный
+      isControlCheck: false, // сейчас идем по контрольному кругу или нет
     },
     training: {
       isActive: false, // Переменная для отслеживания процесса обучения
@@ -225,6 +229,9 @@
     hunting.currentVictim = hunting.victim;
     hunting.lootItem = loot;
 
+    hunting.cycleCount = 0;
+    hunting.isControlCheck = false;
+
     log.info(
       `>>> Русалочий квест распознан: цели = ${hunting.victims.join(', ')}, лут = ${hunting.lootItem}`
     );
@@ -234,11 +241,36 @@
     const nextIndex = hunting.victimIndex + 1;
 
     if (nextIndex >= hunting.victims.length) {
+      hunting.cycleCount += 1;
+
+      if (hunting.cycleCount < hunting.maxCycles) {
+        hunting.victimIndex = 0;
+        hunting.victim = hunting.victims[0];
+        hunting.currentVictim = hunting.victim;
+
+        hunting.victimLocation = '';
+        hunting.isVictimLocationFound = false;
+        hunting.isLocationCodeFound = false;
+        hunting.locationCode = '';
+        hunting.isInspecting = false;
+        hunting.isVictimKilled = false;
+
+        hunting.isControlCheck = true;
+
+        log.warn(
+          `>>> Первый проход по всем целям завершен. Запускаю контрольную перепроверку с начала. Причина: ${reason}`
+        );
+
+        sendCommand(`${CONFIG.commands.wherePrefix} ${hunting.victim}`);
+        return true;
+      }
+
       log.warn(
-        `>>> Цели закончились, переключаться больше некуда. Причина: ${reason}`
+        `>>> Все цели проверены, включая контрольный круг. Охота остановлена. Причина: ${reason}`
       );
       hunting.isActive = false;
-      stopCombat('все цели проверены');
+      hunting.isControlCheck = false;
+      stopCombat('все цели проверены дважды');
       return false;
     }
 
@@ -254,7 +286,7 @@
     hunting.isVictimKilled = false;
 
     log.info(
-      `>>> Переключаюсь на следующую цель: ${hunting.victim}. Причина: ${reason}`
+      `>>> Переключаюсь на следующую цель: ${hunting.victim}. Причина: ${reason}${hunting.isControlCheck ? ' [контрольный круг]' : ''}`
     );
     sendCommand(`${CONFIG.commands.wherePrefix} ${hunting.victim}`);
     return true;
@@ -339,6 +371,9 @@
     hunting.isInCombat = false;
     hunting.victimIndex = 0;
     hunting.currentVictim = hunting.victim;
+
+    hunting.cycleCount = 0;
+    hunting.isControlCheck = false;
 
     clearTimer('attack');
   }
@@ -829,8 +864,11 @@
           }
 
           hunting.victims = value;
+          hunting.victimIndex = 0;
           hunting.victim = value[0];
           hunting.currentVictim = value[0];
+          hunting.cycleCount = 0;
+          hunting.isControlCheck = false;
 
           log.info(`>>> Цели охоты: ${hunting.victims.join(', ')}\n`);
         },
