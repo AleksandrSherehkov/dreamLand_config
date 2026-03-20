@@ -22,6 +22,7 @@
       enabled: true,
       debounceMs: 500,
       backendUrl: 'http://localhost:3001/api/items',
+      identifyPrefixes: ['к опоз ', 'к опознание '],
     },
 
     commands: {
@@ -63,9 +64,11 @@
 
     hunting: {
       defaultAttackCommand: 'к вред',
-      defaultVictim: 'проповедник',
-      defaultLoot: 'страница',
+      defaultVictim: 'рок-менестрель',
+      defaultLoot: 'листовка',
       attackIntervalMs: 3000,
+      maxCycles: 2, // 1 основной + 1 контрольный
+      lootAllCommand: item => `взять все.${item}`,
 
       questTemplates: [
         {
@@ -114,9 +117,52 @@
     },
 
     tabActions: {
-      commands: ['гиг', 'щит', 'брон', 'неист'],
+      commands: ['гиг', 'неист'],
       targets: ['демон', 'волк'],
     },
+
+    buffs: [
+      { prop: 'pro', value: 's', command: 'к аура' },
+      { prop: 'enh', value: 'b', command: 'к благословение' },
+      { prop: 'pro', value: 'S', command: 'c shield' },
+      { prop: 'det', value: 'i', command: 'c detect invis' },
+      // { prop: 'trv', value: 'i', command: 'c invisibility' },
+      // { prop: 'det', value: 'r', command: 'c infravision' },
+
+      // { prop: 'enh', value: 'b', command: 'приказ крыс к благословение без' },
+      // { prop: 'enh', value: 'B', command: 'к благость' },
+      { prop: 'trv', value: 'f', command: 'к полет' },
+
+      // { prop: 'pro', value: 'S', command: 'приказ крыс c shield без' },
+      { prop: 'enh', value: 'l', command: 'c learning' },
+      { prop: 'enh', value: 'g', command: 'c giant' },
+      { prop: 'pro', value: 'p', command: "c 'prot shield'" },
+      { prop: 'det', value: 'm', command: 'c detect magic' },
+      // { prop: 'enh', value: 'h', command: 'c haste' },
+      { prop: 'trv', value: 'm', command: 'c mental block' },
+      { prop: 'pro', value: 'k', command: 'c stone skin' },
+      // { prop: 'pro', value: 'z', command: 'c stardust' },
+      // { prop: 'pro', value: 's', command: 'приказ крыс к sanctuary без' },
+      { prop: 'det', value: 'w', command: 'c improved detect' },
+      { prop: 'pro', value: 'D', command: 'c dragon skin' },
+      { prop: 'pro', value: 'h', command: 'c protection heat' },
+      { prop: 'pro', value: 'a', command: 'c armor' },
+      // { prop: 'pro', value: 'a', command: 'приказ крыс c armor без' },
+      { prop: 'pro', value: 'A', command: 'c enhanced armor' },
+      // { prop: 'enh', value: 'm', command: 'c magic concentrate' },
+      // { prop: 'pro', value: 'm', command: 'c spell resistance' },
+      // { prop: 'enh', value: 'c', command: 'c inaction' },
+      // { prop: 'pro', value: 'l', command: 'c love potion' },
+      // { prop: 'pro', value: 'a', command: 'c astral projection' },
+      // { prop: 'pro', value: 'b', command: 'c broom ritual' },
+      { prop: 'pro', value: 'g', command: 'c protection good' },
+      { prop: 'pro', value: 'e', command: 'c protection evil' },
+      // { prop: 'det', value: 'o', command: 'к диагностика' },
+      { prop: 'det', value: 'e', command: 'к обнаружить зло' },
+      // { prop: 'trv', value: 's', command: 'красться' },
+      // { prop: 'det', value: 'h', command: 'приглядеться' },
+      { prop: 'det', value: 'g', command: 'к обнаружить добро' },
+    ],
   };
 
   const DEBUG_MODE = CONFIG.debug;
@@ -154,7 +200,6 @@
       isInCombat: false,
 
       cycleCount: 0, // сколько полных кругов уже завершили
-      maxCycles: 2, // 1 основной + 1 контрольный
       isControlCheck: false, // сейчас идем по контрольному кругу или нет
     },
     training: {
@@ -180,9 +225,13 @@
       isActionLocked: false, // Для предотвращения спама действий
       isLooting: false, // Флаг для отслеживания процесса лутания
     },
+    parser: {
+      isCollecting: false,
+      accumulatedText: '',
+    },
   };
 
-  const { hunting, training, energy, general, brewing } = state;
+  const { hunting, training, energy, general, brewing, parser } = state;
 
   /* -------------------------------------------------------------------------- */
   /* TIMERS                                                                      */
@@ -215,6 +264,11 @@
 
   const sendCommand = command => {
     log.debug('Отправляю команду:', command);
+
+    if (startsWithIdentifyPrefix(command)) {
+      startParserCollection(command);
+    }
+
     send(command);
   };
 
@@ -243,18 +297,12 @@
     if (nextIndex >= hunting.victims.length) {
       hunting.cycleCount += 1;
 
-      if (hunting.cycleCount < hunting.maxCycles) {
+      if (hunting.cycleCount < CONFIG.hunting.maxCycles) {
         hunting.victimIndex = 0;
         hunting.victim = hunting.victims[0];
         hunting.currentVictim = hunting.victim;
 
-        hunting.victimLocation = '';
-        hunting.isVictimLocationFound = false;
-        hunting.isLocationCodeFound = false;
-        hunting.locationCode = '';
-        hunting.isInspecting = false;
-        hunting.isVictimKilled = false;
-
+        resetCurrentVictimProgress();
         hunting.isControlCheck = true;
 
         log.warn(
@@ -278,12 +326,7 @@
     hunting.victim = hunting.victims[nextIndex];
     hunting.currentVictim = hunting.victim;
 
-    hunting.victimLocation = '';
-    hunting.isVictimLocationFound = false;
-    hunting.isLocationCodeFound = false;
-    hunting.locationCode = '';
-    hunting.isInspecting = false;
-    hunting.isVictimKilled = false;
+    resetCurrentVictimProgress();
 
     log.info(
       `>>> Переключаюсь на следующую цель: ${hunting.victim}. Причина: ${reason}${hunting.isControlCheck ? ' [контрольный круг]' : ''}`
@@ -360,14 +403,18 @@
     clearTimer('energyWakeUp');
   }
 
-  function resetHuntingState() {
-    hunting.isActive = false;
+  function resetCurrentVictimProgress() {
     hunting.victimLocation = '';
     hunting.isVictimLocationFound = false;
     hunting.isLocationCodeFound = false;
     hunting.locationCode = '';
     hunting.isInspecting = false;
     hunting.isVictimKilled = false;
+  }
+
+  function resetHuntingState() {
+    hunting.isActive = false;
+    resetCurrentVictimProgress();
     hunting.isInCombat = false;
     hunting.victimIndex = 0;
     hunting.currentVictim = hunting.victim;
@@ -386,6 +433,33 @@
     hunting.isInCombat = false;
     hunting.isInspecting = false;
     clearTimer('attack');
+  }
+
+  function startsWithIdentifyPrefix(text) {
+    const normalized = String(text).trim().toLowerCase();
+
+    return CONFIG.parser.identifyPrefixes.some(prefix =>
+      normalized.startsWith(prefix.toLowerCase())
+    );
+  }
+
+  function resetParserState() {
+    parser.isCollecting = false;
+    parser.accumulatedText = '';
+    clearTimer('parse');
+  }
+
+  function startParserCollection(commandText = '') {
+    if (!CONFIG.parser.enabled) {
+      return;
+    }
+
+    parser.isCollecting = true;
+    parser.accumulatedText = commandText ? String(commandText).trim() : '';
+
+    clearTimer('parse');
+
+    log.debug('>>> Парсер предмета активирован.');
   }
 
   /* -------------------------------------------------------------------------- */
@@ -557,6 +631,10 @@
   }
 
   function handleTrainingLowEnergy(text) {
+    if (!training.isActive) {
+      return;
+    }
+
     if (!text.includes('У тебя не хватает энергии')) {
       return;
     }
@@ -750,8 +828,6 @@
   /* PARSER                                                                      */
   /* -------------------------------------------------------------------------- */
 
-  let accumulatedText = '';
-
   // Отправка распарсенного предмета на бэкенд
   const saveToBackend = async data => {
     if (
@@ -770,19 +846,38 @@
         body: JSON.stringify({ data }),
       });
 
-      const result = await response.json();
+      const rawText = await response.text();
+
+      let result = null;
+      if (rawText) {
+        try {
+          result = JSON.parse(rawText);
+        } catch (parseError) {
+          log.warn('⚠️ Backend вернул не JSON:', rawText);
+        }
+      }
+
       if (response.ok) {
         echo(
           `✅ Предмет успешно добавлен: ${data['Название предмета']} (${data['Уровень предмета']} ур.)`
         );
-        log.info('✅ Предмет отправлен на сервер:', result);
-      } else {
-        echo(result.message);
-        log.warn('❌ Ошибка сервера:', result.message || result);
+        log.info('✅ Предмет отправлен на сервер:', result ?? rawText ?? null);
+        return;
       }
+
+      const errorMessage =
+        result?.message || rawText || `Ошибка сервера (${response.status})`;
+
+      echo(errorMessage);
+      log.warn('❌ Ошибка сервера:', {
+        status: response.status,
+        statusText: response.statusText,
+        result,
+        rawText,
+      });
     } catch (error) {
       log.error('🚫 Ошибка отправки:', error);
-      echo(error);
+      echo(`Ошибка отправки: ${error?.message || error}`);
     }
   };
 
@@ -846,8 +941,8 @@
   /* COMMANDS                                                                    */
   /* -------------------------------------------------------------------------- */
 
-  function processCommand(e, text) {
-    const commands = [
+  function buildUserCommands() {
+    return [
       {
         cmd: '/victim',
         handler: args => {
@@ -876,30 +971,58 @@
       {
         cmd: '/weapon',
         handler: args => {
-          general.weapon = args.trim();
+          const value = args.trim();
+
+          if (!value) {
+            log.info(`>>> Текущее оружие: ${general.weapon}\n`);
+            return;
+          }
+
+          general.weapon = value;
           log.info(`>>> Твое оружие теперь ${general.weapon}\n`);
         },
       },
       {
         cmd: '/iden',
         handler: args => {
-          sendCommand(`взять ${args} сумка`);
-          sendCommand(`к опознание ${args}`);
-          sendCommand(`полож ${args} сумка`);
+          const value = args.trim();
+          if (!value) {
+            log.warn('>>> Укажи предмет: /iden <предмет>\n');
+            return;
+          }
+
+          sendCommand(`взять ${value} сумка`);
+          sendCommand(`к опознание ${value}`);
+          sendCommand(`полож ${value} сумка`);
         },
       },
       {
         cmd: '/purge',
         handler: args => {
-          sendCommand(`взять ${args} сумка`);
-          sendCommand(`бросить ${args}`);
-          sendCommand(`жертвовать ${args}`);
+          const value = args.trim();
+          if (!value) {
+            log.warn('>>> Укажи предмет: /purge <предмет>\n');
+            return;
+          }
+
+          sendCommand(`взять ${value} сумка`);
+          sendCommand(`бросить ${value}`);
+          sendCommand(`жертвовать ${value}`);
         },
       },
       {
         cmd: '/bd',
         handler: args => {
-          general.doorToBash = args.trim();
+          const value = args.trim();
+
+          if (!value) {
+            log.info(
+              `>>> Текущее направление для выбивания: ${general.doorToBash}\n`
+            );
+            return;
+          }
+
+          general.doorToBash = value;
           log.info(
             `>>> Поехали, вышибаем по направлению ${general.doorToBash}\n`
           );
@@ -910,6 +1033,7 @@
         cmd: '/skill',
         handler: args => {
           const value = args.trim();
+
           if (!value) {
             log.info(`>>> Текущий навык: ${training.skillToTrain}\n`);
             return;
@@ -925,7 +1049,7 @@
           const value = Number(args.trim());
 
           if (!Number.isFinite(value) || value < 300) {
-            log.warn(`>>> Укажи задержку в мс, например: /skilldelay 4000\n`);
+            log.warn('>>> Укажи задержку в мс, например: /skilldelay 4000\n');
             return;
           }
 
@@ -936,15 +1060,25 @@
         },
       },
     ];
+  }
 
-    const commandObj = commands.find(({ cmd }) => text.startsWith(cmd));
-    if (commandObj) {
-      const args = text.slice(commandObj.cmd.length).trim();
-      commandObj.handler(args);
-      e.stopPropagation();
-      return true;
+  const USER_COMMANDS = buildUserCommands();
+
+  function processCommand(e, text) {
+    const trimmedText = text.trim();
+    const commandObj = USER_COMMANDS.find(({ cmd }) =>
+      trimmedText.startsWith(cmd)
+    );
+
+    if (!commandObj) {
+      return false;
     }
-    return false;
+
+    const args = trimmedText.slice(commandObj.cmd.length).trim();
+    commandObj.handler(args);
+    e.preventDefault();
+    e.stopPropagation();
+    return true;
   }
 
   /* -------------------------------------------------------------------------- */
@@ -1074,54 +1208,12 @@
   /* BUFFS                                                                       */
   /* -------------------------------------------------------------------------- */
 
-  const buffs = [
-    { prop: 'pro', value: 's', command: 'к аура' },
-    { prop: 'enh', value: 'b', command: 'к благословение' },
-    { prop: 'pro', value: 'S', command: 'c shield' },
-    { prop: 'det', value: 'i', command: 'c detect invis' },
-    // { prop: 'trv', value: 'i', command: 'c invisibility' },
-    // { prop: 'det', value: 'r', command: 'c infravision' },
-
-    //  { prop: 'enh', value: 'b', command: 'приказ крыс к благословение без' },
-    // { prop: 'enh', value: 'B', command: 'к благость' },
-    { prop: 'trv', value: 'f', command: 'к полет' },
-
-    //  { prop: 'pro', value: 'S', command: 'приказ крыс c shield без' },
-    { prop: 'enh', value: 'l', command: 'c learning' },
-    { prop: 'enh', value: 'g', command: 'c giant' },
-    { prop: 'pro', value: 'p', command: "c 'prot shield'" },
-    { prop: 'det', value: 'm', command: 'c detect magic' },
-    // { prop: 'enh', value: 'h', command: 'c haste' },
-    { prop: 'trv', value: 'm', command: 'c mental block' },
-    { prop: 'pro', value: 'k', command: 'c stone skin' },
-    // { prop: 'pro', value: 'z', command: 'c stardust' },
-    //  { prop: 'pro', value: 's', command: 'приказ крыс к sanctuary без' },
-    { prop: 'det', value: 'w', command: 'c improved detect' },
-    { prop: 'pro', value: 'D', command: 'c dragon skin' },
-    { prop: 'pro', value: 'h', command: 'c protection heat' },
-    { prop: 'pro', value: 'a', command: 'c armor' },
-    //  { prop: 'pro', value: 'a', command: 'приказ крыс c armor без' },
-    { prop: 'pro', value: 'A', command: 'c enhanced armor' },
-    // { prop: 'enh', value: 'm', command: 'c magic concentrate' },
-    // { prop: 'pro', value: 'm', command: 'c spell resistance' },
-    // { prop: 'enh', value: 'c', command: 'c inaction' },
-    // { prop: 'pro', value: 'l', command: 'c love potion' },
-    // { prop: 'pro', value: 'a', command: 'c astral projection' },
-    // { prop: 'pro', value: 'b', command: 'c broom ritual' },
-    { prop: 'pro', value: 'g', command: 'c protection good' },
-    { prop: 'pro', value: 'e', command: 'c protection evil' },
-    // { prop: 'det', value: 'o', command: 'к диагностика' },
-    { prop: 'det', value: 'e', command: 'к обнаружить зло' },
-    // { prop: 'trv', value: 's', command: 'красться' },
-    //  { prop: 'det', value: 'h', command: 'приглядеться' },
-    { prop: 'det', value: 'g', command: 'к обнаружить добро' },
-  ];
-
   function handleBuffs() {
     const prompt = globalThis.mudprompt || {};
 
-    buffs.forEach(({ prop, value, command }) => {
+    CONFIG.buffs.forEach(({ prop, value, command }) => {
       const promptProp = prompt[prop];
+
       if (promptProp === 'none' || !promptProp?.a?.includes(value)) {
         sendCommand(command);
       }
@@ -1173,40 +1265,44 @@
   }
 
   function flushParsedText() {
-    const cleanedText = getCleanedParsedText(accumulatedText);
+    const cleanedText = getCleanedParsedText(parser.accumulatedText);
     const parsedData = parseInputText(cleanedText);
 
-    accumulatedText = '';
+    resetParserState();
 
     if (Object.keys(parsedData).length > 0) {
       saveToBackend(parsedData);
     } else {
       log.warn('⚠️ Данные не были распознаны.');
     }
-
-    timers.parse = null;
   }
 
   function updateAccumulatedText(text) {
-    if (text.startsWith('к опоз ') || text.startsWith('к опознание ')) {
-      accumulatedText = text;
-      clearTimer('parse');
+    if (!parser.isCollecting) {
       return;
     }
 
-    accumulatedText += `\n${text}`;
+    if (!parser.accumulatedText) {
+      parser.accumulatedText = text;
+      return;
+    }
+
+    parser.accumulatedText += `\n${text}`;
   }
 
   function handleParserText(text) {
     if (!CONFIG.parser.enabled) {
-      clearTimer('parse');
-      accumulatedText = '';
-      return true;
+      resetParserState();
+      return;
+    }
+
+    if (!parser.isCollecting) {
+      return;
     }
 
     if (isInvalidLine(text)) {
-      log.info('⏩ Пропущена ненужная строка.');
-      return false;
+      log.info('⏩ Пропущена ненужная строка парсера.');
+      return;
     }
 
     updateAccumulatedText(text);
@@ -1215,8 +1311,6 @@
     timers.parse = setTimeout(() => {
       flushParsedText();
     }, CONFIG.parser.debounceMs);
-
-    return true;
   }
 
   function runTextTriggers(text) {
@@ -1240,7 +1334,7 @@
 
     if (lowerText.includes(`${victimName} уже труп`)) {
       log.info(`>>> Жертва ${victimName} мертва!`);
-      sendCommand(`взять ${hunting.lootItem}`);
+      sendCommand(CONFIG.hunting.lootAllCommand(hunting.lootItem));
       stopCombat('жертва убита');
       return;
     }
@@ -1295,10 +1389,7 @@
     handleTyphoenAlert(text);
     handleBrewingCommands(e, text);
 
-    const shouldContinue = handleParserText(text);
-    if (!shouldContinue) {
-      return;
-    }
+    handleParserText(text);
 
     handleGameStates(text);
     runTextTriggers(text);
@@ -1387,10 +1478,6 @@
         sendCommand(CONFIG.commands.drink);
       },
     },
-    {
-      pattern: /У тебя не хватает энергии/,
-      action: handleLowEnergy,
-    },
   ];
 
   document.addEventListener(
@@ -1424,6 +1511,10 @@
   // Подписка на пользовательский ввод
   $('.trigger').off('input.myNamespace');
   $('.trigger').on('input.myNamespace', (e, text) => {
+    if (startsWithIdentifyPrefix(text)) {
+      startParserCollection(text);
+    }
+
     processCommand(e, text);
   });
 
@@ -1449,32 +1540,6 @@
         break;
       case KeyCodes.Tab:
         e.preventDefault();
-        //  const items = [
-        //    'Пламя Тьмы',
-        //    'черный шлем с шипами',
-        //    'ониксовая серьга',
-        //    'портативный котел для зелий',
-        //    'тени сумеречных ветров',
-        //    'Лето',
-        //    'Лето',
-        //    'одеяние девственности',
-        //    'Осень',
-        //    'Наводнение',
-        //    'нарукавник могущества',
-        //    'нарукавник могущества',
-        //    'Мерцающее Кольцо Венздей',
-        //    'Мерцающее Кольцо Венздей',
-        //    'справедливость лаеркай',
-        //    'кинжал путешественника',
-        //    'герб',
-        //    'Мерцающий Пояс Венздей',
-        //    'Весна',
-        //    'платиновые сапоги',
-        //    'светящаяся сфера',
-        //  ];
-
-        //  items.forEach(item => sendCommand(`к огнеупорность ${item}`));
-
         {
           const { commands, targets } = CONFIG.tabActions;
           targets.forEach(target => {
