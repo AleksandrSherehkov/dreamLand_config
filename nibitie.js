@@ -2123,6 +2123,14 @@
       const resolvedLocation = hunting.normalizedResolvedLocation;
 
       if (TEXT_PATTERNS.hunting.alreadyHere.test(ctx.raw)) {
+        huntingLog.info('>>> Уже на месте, начинаю осмотр.');
+
+        Store.setHuntingStatus('inspecting', 'уже в нужной локации');
+
+        if (ActionGate.allow('hunting:already-here-look', 1000)) {
+          Commands.look();
+        }
+
         return;
       }
 
