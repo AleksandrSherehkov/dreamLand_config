@@ -78,7 +78,7 @@
     },
 
     hunting: {
-      defaultAttackCommand: 'к вред',
+      defaultAttackCommand: 'к утеч',
       defaultTarget: 'рок-менестрель',
       defaultLoot: 'листовка',
       attackIntervalMs: 3000,
@@ -231,7 +231,8 @@
     },
     events: {
       typhoenMention: new RegExp(escapeRegExp(CONFIG.alerts.typhoenText), 'i'),
-      weaponDrop: /ВЫБИЛ.? у тебя .*, и он.? пада.?т .*!/,
+      weaponDrop:
+        /ВЫБИЛ.? у тебя .*, и он.? пада.?т .*!|От боли ты роняешь .*\!/i,
       hunger: /Ты хочешь есть\./,
       thirst: /Ты хочешь пить\./,
     },
@@ -416,9 +417,7 @@
 
     const initialState = {
       status: 'idle',
-      // idle | locating | pathing | inspecting | fighting | looting | stopped
       phase: 'primary',
-      // primary | control
       attackCommand: CONFIG.hunting.defaultAttackCommand,
       targetQueue: [target],
       normalizedTargetQueue: [normalizedTarget],
@@ -429,6 +428,8 @@
       resolvedLocation: '',
       normalizedResolvedLocation: '',
       resolvedPathCode: '',
+      pathBlockLines: [],
+      inspectFallbackPathCode: '',
       cycleCount: 0,
     };
     return initialState;
@@ -883,7 +884,13 @@
         hunting.normalizedResolvedLocation =
           initialHuntingState.normalizedResolvedLocation;
         hunting.resolvedPathCode = initialHuntingState.resolvedPathCode;
+        hunting.pathBlockLines = initialHuntingState.pathBlockLines;
+        hunting.inspectFallbackPathCode =
+          initialHuntingState.inspectFallbackPathCode;
       });
+
+      TimerManager.clear('huntingPathBlock');
+      TimerManager.clear('huntingInspect');
     },
 
     resetHuntingRuntimeState(status = 'idle') {
@@ -979,23 +986,20 @@
       this.resetGeneralRuntimeState();
     },
 
+    resetAllStateToDefaults() {
+      this.resetConfigState();
+      this.resetBrewingRuntimeState('stopped');
+      this.resetTrainingRuntimeState('stopped');
+      this.resetHuntingRuntimeState('stopped');
+      this.resetParserRuntimeState();
+    },
+
     resetBrewingState(status = 'idle') {
       return this.resetBrewingRuntimeState(status);
     },
 
     resetTrainingState(status = 'idle') {
       return this.resetTrainingRuntimeState(status);
-    },
-
-    // Deprecated compatibility alias. Prefer resetHuntingRuntimeProgress().
-    resetCurrentVictimProgress() {
-      if (ActionGate.allow('deprecated:resetCurrentVictimProgress', 60000)) {
-        stateLog.warn(
-          '>>> resetCurrentVictimProgress() устарел; используй resetHuntingRuntimeProgress()'
-        );
-      }
-
-      return this.resetHuntingRuntimeProgress();
     },
 
     resetHuntingState(status = 'idle') {
@@ -1301,8 +1305,32 @@
       this.send(`${CONFIG.commands.pathPrefix} ${location}`);
     },
 
+    runStep(step) {
+      const normalizedStep = String(step ?? '').trim();
+
+      if (!normalizedStep) {
+        return;
+      }
+
+      if (/\s/.test(normalizedStep)) {
+        this.send(normalizedStep);
+        return;
+      }
+
+      this.send(`${CONFIG.commands.runPrefix} ${normalizedStep}`);
+    },
+
     run(code) {
-      this.send(`${CONFIG.commands.runPrefix} ${code}`);
+      const steps = String(code ?? '')
+        .split('|')
+        .map(step => step.trim())
+        .filter(Boolean);
+
+      if (steps.length === 0) {
+        return;
+      }
+
+      steps.forEach(step => this.runStep(step));
     },
 
     look() {
@@ -1394,53 +1422,373 @@
       );
     },
 
+    parseQuestCommandArgs(args = '') {
+      const rawValue = String(args ?? '').trim();
+
+      if (!rawValue) {
+        return null;
+      }
+
+      const [targetsPart = '', lootPart = ''] = rawValue.split('|');
+      const targets = HuntingState.toDisplayList(targetsPart.split(','));
+      const loot = lootPart.trim();
+
+      if (targets.length === 0 || !loot) {
+        return null;
+      }
+
+      return {
+        targets,
+        loot,
+      };
+    },
+
+    getQuestHelpLines() {
+      return [
+        'Формат: /quest цель1, цель2 | лут',
+        'Примеры:',
+        '/quest рок-менестрель | листовка',
+        '/quest певица, скрипач, музыкант | струна',
+        '/quest ханжа | крупица',
+      ];
+    },
+
+    getTargetHelpLines() {
+      return [
+        'Формат: /target цель1, цель2',
+        'Примеры:',
+        '/target рок-менестрель',
+        '/target певица, скрипач, музыкант',
+      ];
+    },
+
+    getLootHelpLines() {
+      return [
+        'Формат: /loot предмет',
+        'Примеры:',
+        '/loot листовка',
+        '/loot крупица',
+      ];
+    },
+
+    getAttackHelpLines() {
+      return [
+        'Формат: /attack команда',
+        'Примеры:',
+        '/attack к вред',
+        '/attack к утеч',
+      ];
+    },
+
+    getWeaponHelpLines() {
+      return [
+        'Формат: /weapon оружие',
+        'Примеры:',
+        '/weapon молоток',
+        '/weapon меч',
+      ];
+    },
+
+    getFoodHelpLines() {
+      return ['Формат: /food еда', 'Примеры:', '/food манна', '/food хлеб'];
+    },
+
+    getSleepItemHelpLines() {
+      return [
+        'Формат: /sleepitem предмет',
+        'Примеры:',
+        '/sleepitem кресло',
+        '/sleepitem кровать',
+      ];
+    },
+
+    getIdentifyHelpLines() {
+      return [
+        'Формат: /iden предмет',
+        'Примеры:',
+        '/iden листовка',
+        '/iden меч',
+      ];
+    },
+
+    getBashDirectionHelpLines() {
+      return ['Формат: /bd направление', 'Примеры:', '/bd n', '/bd east'];
+    },
+
+    getSkillHelpLines() {
+      return [
+        'Формат: /skill команда',
+        'Примеры:',
+        '/skill к щит',
+        '/skill к утеч',
+      ];
+    },
+
+    getSkillDelayHelpLines() {
+      return [
+        'Формат: /skilldelay число_в_мс',
+        'Примеры:',
+        '/skilldelay 4000',
+        '/skilldelay 2500',
+      ];
+    },
+
+    showHelpLines(lines = [], level = 'info') {
+      const logMethod = commandsLog[level] || commandsLog.info;
+
+      lines.forEach(line => {
+        echo(line);
+        logMethod(`>>> ${line}\n`);
+      });
+    },
+
+    getStatusLines() {
+      const summary = getStatusSummary();
+      const training = Store.training();
+      const hunting = summary.hunting;
+      const currentTarget =
+        hunting.target ||
+        hunting.targetQueue[hunting.activeTargetIndex] ||
+        'не выбрана';
+      const targetQueueText = hunting.targetQueue.length
+        ? hunting.targetQueue.join(', ')
+        : 'пуста';
+      const activeTimersText = summary.activeTimers.length
+        ? summary.activeTimers.join(', ')
+        : 'нет';
+      const lines = [
+        'Статус бота:',
+        `Охота: ${hunting.status} (${hunting.phase})`,
+        `Текущая цель: ${currentTarget}`,
+        `Очередь целей: ${targetQueueText}`,
+        `Лут: ${hunting.lootItem || 'не задан'}`,
+        `Команда атаки: ${hunting.attackCommand || 'не задана'}`,
+        `Тренировка: ${summary.training}, навык = ${training.skillToTrain}, задержка = ${training.skillDelayMs} мс`,
+        `Варка: ${summary.brewing}`,
+        `Парсер: ${summary.parser}`,
+        `Блокировка действий: ${summary.actionLocked ? 'да' : 'нет'}`,
+        `Активные таймеры: ${activeTimersText}`,
+      ];
+
+      if (hunting.location) {
+        lines.splice(4, 0, `Локация цели: ${hunting.location}`);
+      }
+
+      if (hunting.locationCode) {
+        lines.splice(5, 0, `Код пути: ${hunting.locationCode}`);
+      }
+
+      return lines;
+    },
+
     userCommands: {
+      '/panic': () => {
+        Commands.clearBuffer();
+        Store.resetAllStateToDefaults();
+        TimerManager.clearAll();
+        ActionGate.clear();
+
+        const message =
+          'PANIC: все процессы остановлены, таймеры очищены, настройки и состояние сброшены к значениям по умолчанию';
+        echo(message);
+        commandsLog.warn(`>>> ${message}\n`);
+      },
+
+      '/status': () => {
+        Commands.showHelpLines(Commands.getStatusLines());
+      },
+
+      '/stophunt': () => {
+        if (!HuntingModule.isActive()) {
+          const message = `Охота уже не активна. Текущий статус: ${Store.hunting().status}`;
+          echo(message);
+          commandsLog.warn(`>>> ${message}\n`);
+          return;
+        }
+
+        HuntingModule.stop('команда /stophunt');
+        const message = `Охота остановлена. Текущий статус: ${Store.hunting().status}`;
+        echo(message);
+        commandsLog.info(`>>> ${message}\n`);
+      },
+
+      '/skip': () => {
+        if (!HuntingModule.isActive()) {
+          const message = 'Охота сейчас не активна, пропускать нечего';
+          echo(message);
+          commandsLog.warn(`>>> ${message}\n`);
+          return;
+        }
+
+        const skipped = HuntingModule.skipCurrentTarget('команда /skip');
+        const hunting = Store.hunting();
+        const currentTarget =
+          HuntingState.getQueuedTarget(hunting) ||
+          hunting.activeTarget ||
+          'не выбрана';
+        const message = skipped
+          ? `Пропускаю цель. Следующая цель: ${currentTarget}`
+          : `Пропуск завершен. Текущий статус охоты: ${hunting.status}`;
+
+        echo(message);
+        commandsLog.info(`>>> ${message}\n`);
+      },
+
       '/target': args => {
         const hunting = Store.hunting();
         const value = HuntingState.toDisplayList(args.split(','));
+        const helpLines = Commands.getTargetHelpLines();
 
         if (value.length === 0) {
-          commandsLog.info(
-            `>>> Текущие цели: ${hunting.targetQueue.join(', ')}, лут: ${hunting.lootItem}\n`
-          );
+          const message = `Текущие цели: ${hunting.targetQueue.join(', ')}, лут: ${hunting.lootItem}`;
+          echo(message);
+          commandsLog.info(`>>> ${message}\n`);
+          Commands.showHelpLines(helpLines);
           return;
         }
 
         Commands.setHuntingTargets(value);
 
         const nextHunting = Store.hunting();
+        const message = `Цели охоты: ${nextHunting.targetQueue.join(', ')}`;
 
-        commandsLog.info(
-          `>>> Цели охоты: ${nextHunting.targetQueue.join(', ')}\n`
-        );
+        echo(message);
+        commandsLog.info(`>>> ${message}\n`);
       },
 
-      // Deprecated compatibility alias. Prefer /target.
-      '/victim': args => {
-        if (ActionGate.allow('deprecated:/victim', 60000)) {
-          commandsLog.warn('>>> Команда /victim устарела; используй /target\n');
+      '/quest': args => {
+        const hunting = Store.hunting();
+        const parsedQuest = Commands.parseQuestCommandArgs(args);
+        const helpLines = Commands.getQuestHelpLines();
+
+        if (!args.trim()) {
+          const message = `Текущий квест: цели = ${hunting.targetQueue.join(', ')}, лут = ${hunting.lootItem}`;
+          echo(message);
+          commandsLog.info(`>>> ${message}\n`);
+          Commands.showHelpLines(helpLines);
+          return;
         }
 
-        Commands.userCommands['/target'](args);
+        if (!parsedQuest) {
+          const message = 'Не удалось распознать /quest.';
+          echo(message);
+          commandsLog.warn(`>>> ${message}\n`);
+          Commands.showHelpLines(helpLines, 'warn');
+          return;
+        }
+
+        Commands.setHuntingQuest(parsedQuest);
+
+        const nextHunting = Store.hunting();
+        const message = `Квест охоты: цели = ${nextHunting.targetQueue.join(', ')}, лут = ${nextHunting.lootItem}`;
+        echo(message);
+        commandsLog.info(`>>> ${message}\n`);
+      },
+
+      '/loot': args => {
+        const hunting = Store.hunting();
+        const value = args.trim();
+        const helpLines = Commands.getLootHelpLines();
+
+        if (!value) {
+          const message = `Текущий лут: ${hunting.lootItem}`;
+          echo(message);
+          commandsLog.info(`>>> ${message}\n`);
+          Commands.showHelpLines(helpLines);
+          return;
+        }
+
+        Store.patch('hunting.lootItem', value);
+        const message = `Лут для охоты: ${Store.hunting().lootItem}`;
+        echo(message);
+        commandsLog.info(`>>> ${message}\n`);
+      },
+
+      '/attack': args => {
+        const hunting = Store.hunting();
+        const value = args.trim();
+        const helpLines = Commands.getAttackHelpLines();
+
+        if (!value) {
+          const message = `Текущая команда атаки: ${hunting.attackCommand}`;
+          echo(message);
+          commandsLog.info(`>>> ${message}\n`);
+          Commands.showHelpLines(helpLines);
+          return;
+        }
+
+        Store.patch('hunting.attackCommand', value);
+        const message = `Команда атаки: ${Store.hunting().attackCommand}`;
+        echo(message);
+        commandsLog.info(`>>> ${message}\n`);
       },
 
       '/weapon': args => {
         const general = Store.general();
         const value = args.trim();
+        const helpLines = Commands.getWeaponHelpLines();
 
         if (!value) {
-          commandsLog.info(`>>> Текущее оружие: ${general.weapon}\n`);
+          const message = `Текущее оружие: ${general.weapon}`;
+          echo(message);
+          commandsLog.info(`>>> ${message}\n`);
+          Commands.showHelpLines(helpLines);
           return;
         }
 
         Store.patch('general.weapon', value);
-        commandsLog.info(`>>> Твое оружие теперь ${Store.general().weapon}\n`);
+        const message = `Твое оружие теперь ${Store.general().weapon}`;
+        echo(message);
+        commandsLog.info(`>>> ${message}\n`);
+      },
+
+      '/food': args => {
+        const general = Store.general();
+        const value = args.trim();
+        const helpLines = Commands.getFoodHelpLines();
+
+        if (!value) {
+          const message = `Текущая еда: ${general.foodItem}`;
+          echo(message);
+          commandsLog.info(`>>> ${message}\n`);
+          Commands.showHelpLines(helpLines);
+          return;
+        }
+
+        Store.patch('general.foodItem', value);
+        const message = `Еда теперь: ${Store.general().foodItem}`;
+        echo(message);
+        commandsLog.info(`>>> ${message}\n`);
+      },
+
+      '/sleepitem': args => {
+        const general = Store.general();
+        const value = args.trim();
+        const helpLines = Commands.getSleepItemHelpLines();
+
+        if (!value) {
+          const message = `Текущий предмет для сна: ${general.sleepItem}`;
+          echo(message);
+          commandsLog.info(`>>> ${message}\n`);
+          Commands.showHelpLines(helpLines);
+          return;
+        }
+
+        Store.patch('general.sleepItem', value);
+        const message = `Предмет для сна теперь: ${Store.general().sleepItem}`;
+        echo(message);
+        commandsLog.info(`>>> ${message}\n`);
       },
 
       '/iden': args => {
         const value = args.trim();
+        const helpLines = Commands.getIdentifyHelpLines();
+
         if (!value) {
-          commandsLog.warn('>>> Укажи предмет: /iden <предмет>\n');
+          const message = 'Укажи предмет для опознания';
+          echo(message);
+          commandsLog.warn(`>>> ${message}\n`);
+          Commands.showHelpLines(helpLines, 'warn');
           return;
         }
 
@@ -1449,71 +1797,78 @@
           `к опознание ${value}`,
           `полож ${value} сумка`,
         ]);
-      },
 
-      '/purge': args => {
-        const value = args.trim();
-        if (!value) {
-          commandsLog.warn('>>> Укажи предмет: /purge <предмет>\n');
-          return;
-        }
-
-        Commands.sendMany([
-          `взять ${value} сумка`,
-          `бросить ${value}`,
-          `жертвовать ${value}`,
-        ]);
+        const message = `Запускаю опознание предмета: ${value}`;
+        echo(message);
+        commandsLog.info(`>>> ${message}\n`);
       },
 
       '/bd': args => {
         const general = Store.general();
         const value = args.trim();
+        const helpLines = Commands.getBashDirectionHelpLines();
 
         if (!value) {
-          commandsLog.info(
-            `>>> Текущее направление для выбивания: ${general.doorToBash}\n`
-          );
+          const message = `Текущее направление для выбивания: ${general.doorToBash}`;
+          echo(message);
+          commandsLog.info(`>>> ${message}\n`);
+          Commands.showHelpLines(helpLines);
           return;
         }
 
         Store.patch('general.doorToBash', value);
         const nextGeneral = Store.general();
-        commandsLog.info(
-          `>>> Поехали, вышибаем по направлению ${nextGeneral.doorToBash}\n`
-        );
+        const message = `Поехали, вышибаем по направлению ${nextGeneral.doorToBash}`;
+        echo(message);
+        commandsLog.info(`>>> ${message}\n`);
         Commands.bash(nextGeneral.doorToBash);
       },
 
       '/skill': args => {
         const training = Store.training();
         const value = args.trim();
+        const helpLines = Commands.getSkillHelpLines();
 
         if (!value) {
-          commandsLog.info(`>>> Текущий навык: ${training.skillToTrain}\n`);
+          const message = `Текущий навык: ${training.skillToTrain}`;
+          echo(message);
+          commandsLog.info(`>>> ${message}\n`);
+          Commands.showHelpLines(helpLines);
           return;
         }
 
         Store.patch('training.skillToTrain', value);
-        commandsLog.info(
-          `>>> Навык для тренировки: ${Store.training().skillToTrain}\n`
-        );
+        const message = `Навык для тренировки: ${Store.training().skillToTrain}`;
+        echo(message);
+        commandsLog.info(`>>> ${message}\n`);
       },
 
       '/skilldelay': args => {
-        const value = Number(args.trim());
+        const rawValue = args.trim();
+        const value = Number(rawValue);
+        const helpLines = Commands.getSkillDelayHelpLines();
+
+        if (!rawValue) {
+          const message = `Текущая задержка тренировки: ${Store.training().skillDelayMs} мс`;
+          echo(message);
+          commandsLog.info(`>>> ${message}\n`);
+          Commands.showHelpLines(helpLines);
+          return;
+        }
 
         if (!Number.isFinite(value) || value < 300) {
-          commandsLog.warn(
-            '>>> Укажи задержку в мс, например: /skilldelay 4000\n'
-          );
+          const message = 'Укажи задержку в мс, например: /skilldelay 4000';
+          echo(message);
+          commandsLog.warn(`>>> ${message}\n`);
+          Commands.showHelpLines(helpLines, 'warn');
           return;
         }
 
         Store.patch('training.skillDelayMs', value);
         const training = Store.training();
-        commandsLog.info(
-          `>>> Задержка тренировки установлена: ${training.skillDelayMs} мс\n`
-        );
+        const message = `Задержка тренировки установлена: ${training.skillDelayMs} мс`;
+        echo(message);
+        commandsLog.info(`>>> ${message}\n`);
       },
     },
 
@@ -1802,6 +2157,22 @@
       return true;
     },
 
+    isResolvedLocationPathLine(ctx) {
+      const hunting = Store.hunting();
+
+      if (!hunting.resolvedLocation) {
+        return false;
+      }
+
+      const safeResolvedLocation = this.escapeRegExp(hunting.resolvedLocation);
+      const pattern = new RegExp(
+        String.raw`'${safeResolvedLocation}'\s*:`,
+        'i'
+      );
+
+      return pattern.test(ctx.raw);
+    },
+
     start() {
       Store.resetHuntingRuntimeState('locating');
       const hunting = Store.hunting();
@@ -1824,6 +2195,13 @@
       }
 
       TimerManager.clear('attack');
+    },
+
+    skipCurrentTarget(reason = 'ручной пропуск цели') {
+      this.logPipeline('skipCurrentTarget', { reason });
+      this.stopAttackLoop(reason);
+
+      return this.advanceToNextTarget(reason);
     },
 
     advanceToNextTarget(reason = 'не указана') {
@@ -1903,6 +2281,11 @@
       if (!targetName) {
         return false;
       }
+
+      TimerManager.clear('huntingInspect');
+      Store.update('hunting', hunting => {
+        hunting.inspectFallbackPathCode = '';
+      });
 
       this.logPipeline('targetFound', { targetName, text: ctx.raw });
 
@@ -2082,7 +2465,13 @@
         return;
       }
 
+      TimerManager.clear('huntingPathBlock');
+      TimerManager.clear('huntingInspect');
+
       Store.update('hunting', hunting => {
+        hunting.pathBlockLines = [];
+        hunting.inspectFallbackPathCode = '';
+        hunting.resolvedPathCode = '';
         HuntingState.setResolvedLocation(hunting, displayLocation);
       });
       const nextHunting = Store.hunting();
@@ -2099,6 +2488,7 @@
       const hunting = Store.hunting();
 
       this.logPipeline('moveToResolvedTarget', { locationCode });
+      TimerManager.clear('huntingInspect');
       Store.setHuntingStatus(
         'inspecting',
         `код пути: ${hunting.resolvedPathCode}`
@@ -2111,6 +2501,115 @@
       }
     },
 
+    flushInspectFallback() {
+      const hunting = Store.hunting();
+      const fallbackPathCode = hunting.inspectFallbackPathCode;
+
+      if (hunting.status !== 'inspecting' || !fallbackPathCode) {
+        return;
+      }
+
+      huntingLog.info(
+        `>>> В текущей локации цель не найдена, использую запасной путь: ${fallbackPathCode}`
+      );
+
+      Store.update('hunting', hunting => {
+        hunting.inspectFallbackPathCode = '';
+        hunting.resolvedPathCode = fallbackPathCode;
+      });
+
+      this.moveToResolvedTarget(fallbackPathCode);
+    },
+
+    scheduleInspectFallback(delay = 250) {
+      const hunting = Store.hunting();
+
+      if (hunting.status !== 'inspecting' || !hunting.inspectFallbackPathCode) {
+        return;
+      }
+
+      TimerManager.set(
+        'huntingInspect',
+        () => {
+          this.flushInspectFallback();
+        },
+        delay
+      );
+    },
+
+    flushPathBlock() {
+      const hunting = Store.hunting();
+      const lines = [...hunting.pathBlockLines];
+
+      if (!lines.length || hunting.resolvedPathCode) {
+        return;
+      }
+
+      let chosenLine = null;
+
+      const alreadyHereIndex = lines.findIndex(ctx =>
+        TEXT_PATTERNS.hunting.alreadyHere.test(ctx.raw)
+      );
+
+      if (alreadyHereIndex >= 0) {
+        const fallbackLine =
+          lines
+            .slice(alreadyHereIndex + 1)
+            .find(ctx => this.extractInlinePathCode(ctx)) || null;
+
+        const fallbackPathCode = fallbackLine
+          ? this.extractInlinePathCode(fallbackLine)
+          : '';
+
+        huntingLog.info(
+          fallbackPathCode
+            ? `>>> "ты уже здесь" найдено. Сначала осматриваю текущую локацию, запасной путь: ${fallbackPathCode}`
+            : '>>> "ты уже здесь" найдено, строк ниже с путем нет. Остаюсь в inspecting.'
+        );
+
+        Store.update('hunting', hunting => {
+          hunting.pathBlockLines = [];
+          hunting.inspectFallbackPathCode = fallbackPathCode;
+        });
+
+        Store.setHuntingStatus('inspecting', 'уже в нужной локации');
+
+        if (ActionGate.allow('hunting:already-here-look', 1000)) {
+          Commands.look();
+        }
+
+        if (fallbackPathCode) {
+          this.scheduleInspectFallback();
+        }
+
+        return;
+      } else {
+        chosenLine = lines.find(ctx => this.extractInlinePathCode(ctx)) || null;
+      }
+
+      if (!chosenLine) {
+        Store.update('hunting', hunting => {
+          hunting.pathBlockLines = [];
+        });
+        return;
+      }
+
+      const locationCode = this.extractInlinePathCode(chosenLine);
+
+      if (!locationCode) {
+        return;
+      }
+
+      huntingLog.info(`>>> Выбран путь из блока: ${locationCode}`);
+
+      Store.update('hunting', hunting => {
+        hunting.resolvedPathCode = locationCode;
+        hunting.pathBlockLines = [];
+      });
+
+      this.moveToResolvedTarget(locationCode);
+    },
+
     resolvePath(ctx) {
       const hunting = Store.hunting();
 
@@ -2120,36 +2619,21 @@
         return;
       }
 
-      const resolvedLocation = hunting.normalizedResolvedLocation;
-
-      if (TEXT_PATTERNS.hunting.alreadyHere.test(ctx.raw)) {
-        huntingLog.info('>>> Уже на месте, начинаю осмотр.');
-
-        Store.setHuntingStatus('inspecting', 'уже в нужной локации');
-
-        if (ActionGate.allow('hunting:already-here-look', 1000)) {
-          Commands.look();
-        }
-
-        return;
-      }
-
-      const safeResolvedLocation = this.escapeRegExp(resolvedLocation);
-      const pattern = new RegExp(
-        String.raw`'${safeResolvedLocation}(?:[.:;!?-]+)?'\s*:\s*(\S+)`,
-        'i'
-      );
-      const match = ctx.raw.match(pattern);
-      const locationCode = match?.[1];
-
-      if (!locationCode) {
+      if (!this.isResolvedLocationPathLine(ctx)) {
         return;
       }
 
       Store.update('hunting', hunting => {
-        hunting.resolvedPathCode = locationCode;
+        hunting.pathBlockLines.push(ctx);
       });
-      this.moveToResolvedTarget(locationCode);
+
+      TimerManager.set(
+        'huntingPathBlock',
+        () => {
+          this.flushPathBlock();
+        },
+        200
+      );
     },
 
     inspectLocation(ctx) {
@@ -2247,6 +2731,31 @@
         huntingLog.warn('>>> Вы погибли.');
         this.stop('персонаж погиб');
       }
+    },
+    extractInlinePathCode(ctx) {
+      const hunting = Store.hunting();
+      if (!hunting.normalizedResolvedLocation) {
+        return null;
+      }
+
+      const safeResolvedLocation = this.escapeRegExp(hunting.resolvedLocation);
+      const pattern = new RegExp(
+        String.raw`'${safeResolvedLocation}'\s*:\s*(.+?)\s*$`,
+        'i'
+      );
+
+      const match = ctx.raw.match(pattern);
+      const candidate = match?.[1]?.trim();
+
+      if (!candidate) {
+        return null;
+      }
+
+      if (TEXT_PATTERNS.hunting.alreadyHere.test(candidate)) {
+        return null;
+      }
+
+      return candidate;
     },
 
     onText(ctx) {
