@@ -40,6 +40,14 @@
       identifyPrefixes: ['к опоз ', 'к опознание '],
     },
 
+    login: {
+      enabled: true,
+      responseDelayMs: 150,
+      characterName: '',
+      password: '',
+      storageKey: 'mudBot.loginCredentials',
+    },
+
     commands: {
       brewStartText: 'сказ варить',
       brewStopText: 'сказ стоп',
@@ -220,6 +228,11 @@
       cantFight: /вы не можете сражаться/i,
       death: /вы умерли/i,
       corpseSuffix: /уже труп/i,
+    },
+    login: {
+      namePrompt: /как твое имя, странник\?/i,
+      passwordPrompt:
+        /(?:какой|скажи|назови)\s+пароль\b|пароль\s*--|чем\s+докажешь.*пароль|тогда\s+назови\s+пароль/i,
     },
     hunting: {
       whereNotFound: /ты не находишь/i,
@@ -585,6 +598,13 @@
       this.memory.clear();
     },
   };
+
+  function resetLoginEphemeralState() {
+    TimerManager.clear('loginAutoSubmit');
+    ActionGate.forget('login:auto-submit');
+    ActionGate.forget('login:character-name');
+    ActionGate.forget('login:password');
+  }
 
   const Store = {
     state: {
@@ -972,6 +992,7 @@
     },
 
     resetRuntimeState() {
+      resetLoginEphemeralState();
       this.resetBrewingRuntimeState();
       this.resetTrainingRuntimeState();
       this.resetHuntingRuntimeState();
@@ -980,6 +1001,7 @@
     },
 
     resetConfigState() {
+      resetLoginEphemeralState();
       this.resetTrainingConfigState();
       this.resetHuntingConfigState();
       this.resetGeneralConfigState();
@@ -1277,10 +1299,21 @@
 
       const finalOptions = {
         trackParser: true,
+        sensitive: false,
         ...options,
       };
 
-      commandsLog.debug('send', { command, options: finalOptions });
+      const logOptions = finalOptions.sensitive
+        ? {
+            trackParser: finalOptions.trackParser,
+            sensitive: true,
+          }
+        : finalOptions;
+
+      commandsLog.debug('send', {
+        command: finalOptions.sensitive ? '[sensitive]' : command,
+        options: logOptions,
+      });
 
       const commandCtx = createTextContext(command);
 
@@ -1891,6 +1924,174 @@
       e.preventDefault();
       e.stopPropagation();
       return true;
+    },
+  };
+
+  const LoginModule = {
+    getStorage() {
+      try {
+        return globalThis.localStorage;
+      } catch (error) {
+        eventLog.warn('localStorage недоступен для авто-логина', error);
+        return null;
+      }
+    },
+
+    normalizeCredentials(credentials = {}) {
+      return {
+        characterName: String(credentials.characterName ?? '').trim(),
+        password: String(credentials.password ?? '').trim(),
+      };
+    },
+
+    getStoredCredentials() {
+      const storage = this.getStorage();
+
+      if (!storage) {
+        return this.normalizeCredentials();
+      }
+
+      try {
+        const rawValue = storage.getItem(CONFIG.login.storageKey);
+
+        if (!rawValue) {
+          return this.normalizeCredentials();
+        }
+
+        return this.normalizeCredentials(JSON.parse(rawValue));
+      } catch (error) {
+        eventLog.warn(
+          'Не удалось прочитать сохраненные данные авто-логина',
+          error
+        );
+        return this.normalizeCredentials();
+      }
+    },
+
+    getCredentials() {
+      const runtimeCredentials = this.normalizeCredentials(
+        globalThis.mudBotLogin
+      );
+      const storedCredentials = this.getStoredCredentials();
+      const configCredentials = this.normalizeCredentials({
+        characterName: CONFIG.login.characterName,
+        password: CONFIG.login.password,
+      });
+
+      return {
+        characterName:
+          runtimeCredentials.characterName ||
+          storedCredentials.characterName ||
+          configCredentials.characterName,
+        password:
+          runtimeCredentials.password ||
+          storedCredentials.password ||
+          configCredentials.password,
+      };
+    },
+
+    getStatus() {
+      const credentials = this.getCredentials();
+
+      return {
+        enabled: CONFIG.login.enabled,
+        hasCharacterName: Boolean(credentials.characterName),
+        hasPassword: Boolean(credentials.password),
+        storageKey: CONFIG.login.storageKey,
+      };
+    },
+
+    setCredentials(credentials = {}, options = {}) {
+      const normalizedCredentials = this.normalizeCredentials(credentials);
+      const { persist = true } = options;
+
+      globalThis.mudBotLogin = normalizedCredentials;
+
+      if (persist) {
+        const storage = this.getStorage();
+
+        if (storage) {
+          try {
+            storage.setItem(
+              CONFIG.login.storageKey,
+              JSON.stringify(normalizedCredentials)
+            );
+          } catch (error) {
+            eventLog.warn('Не удалось сохранить данные авто-логина', error);
+          }
+        }
+      }
+
+      eventLog.info('>>> Данные авто-логина обновлены.');
+      return this.getStatus();
+    },
+
+    clearCredentials() {
+      globalThis.mudBotLogin = this.normalizeCredentials();
+
+      const storage = this.getStorage();
+
+      if (storage) {
+        try {
+          storage.removeItem(CONFIG.login.storageKey);
+        } catch (error) {
+          eventLog.warn('Не удалось удалить данные авто-логина', error);
+        }
+      }
+
+      eventLog.info('>>> Данные авто-логина очищены.');
+      return this.getStatus();
+    },
+
+    scheduleResponse(command, options = {}) {
+      const { sensitive = false, actionKey = 'login:auto-submit' } = options;
+
+      if (!ActionGate.allow(actionKey, 1000)) {
+        return false;
+      }
+
+      TimerManager.set(
+        'loginAutoSubmit',
+        () => {
+          Commands.send(command, {
+            trackParser: false,
+            sensitive,
+          });
+        },
+        CONFIG.login.responseDelayMs
+      );
+
+      return true;
+    },
+
+    handleText(ctx) {
+      if (!CONFIG.login.enabled) {
+        return;
+      }
+
+      const credentials = this.getCredentials();
+
+      if (
+        credentials.characterName &&
+        TEXT_PATTERNS.login.namePrompt.test(ctx.raw)
+      ) {
+        eventLog.info('>>> Обнаружен запрос имени, отправляю имя персонажа.');
+        this.scheduleResponse(credentials.characterName, {
+          actionKey: 'login:character-name',
+        });
+        return;
+      }
+
+      if (
+        credentials.password &&
+        TEXT_PATTERNS.login.passwordPrompt.test(ctx.raw)
+      ) {
+        eventLog.info('>>> Обнаружен запрос пароля, отправляю пароль.');
+        this.scheduleResponse(credentials.password, {
+          sensitive: true,
+          actionKey: 'login:password',
+        });
+      }
     },
   };
 
@@ -3051,6 +3252,7 @@
 
       eventLog.debug('Получен входящий текст:', ctx.raw);
 
+      LoginModule.handleText(ctx);
       HuntingModule.detectHuntingQuest(ctx);
       this.handleTyphoenAlert(ctx);
       ParserModule.handleText(ctx.raw);
@@ -3109,6 +3311,18 @@
       getStatusSummary,
 
       config: CONFIG,
+
+      getLoginStatus() {
+        return LoginModule.getStatus();
+      },
+
+      setLoginCredentials(credentials = {}, options = {}) {
+        return LoginModule.setCredentials(credentials, options);
+      },
+
+      clearLoginCredentials() {
+        return LoginModule.clearCredentials();
+      },
 
       bootstrap() {
         bootstrap();
@@ -3501,6 +3715,7 @@
     Store.resetTrainingRuntimeState('stopped');
     Store.resetHuntingRuntimeState('stopped');
     Store.resetParserRuntimeState();
+    resetLoginEphemeralState();
     TimerManager.clearAll();
     ActionGate.clear();
     UIBindings.destroy();
