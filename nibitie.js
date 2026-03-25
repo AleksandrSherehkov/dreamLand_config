@@ -264,7 +264,7 @@
       pathing: ['inspecting', 'fighting', 'locating', 'stopped', 'idle'],
       inspecting: ['fighting', 'locating', 'stopped', 'idle'],
       fighting: ['looting', 'locating', 'stopped', 'idle'],
-      looting: ['locating', 'stopped', 'idle'],
+      looting: ['fighting', 'locating', 'stopped', 'idle'],
       stopped: ['locating', 'idle'],
     },
     training: {
@@ -2333,13 +2333,29 @@
 
       return (
         ctx.normalized.includes(`[${target}]`) ||
-        TEXT_PATTERNS.hunting.visibleTargetMarker.test(ctx.raw) ||
+        TEXT_PATTERNS.hunting.visibleTargetMarker.test(ctx.raw)
+      );
+    },
+
+    isCorpseLineForTarget(ctx, target) {
+      if (!target) {
+        return false;
+      }
+
+      return (
+        ctx.normalized.includes(target) &&
         TEXT_PATTERNS.combat.corpseSuffix.test(ctx.raw)
       );
     },
 
     tryHandleVisibleTarget(ctx) {
-      if (!this.isActive() || this.isFighting()) {
+      const hunting = Store.hunting();
+
+      if (
+        !this.isActive() ||
+        this.isFighting() ||
+        hunting.status === 'looting'
+      ) {
         return false;
       }
 
@@ -2549,6 +2565,10 @@
         ActionGate.allow(`hunting:loot:${lootKey}:${hunting.lootItem}`, 1500)
       ) {
         Commands.lootAll(hunting.lootItem);
+      }
+
+      if (ActionGate.allow(`hunting:loot-look:${lootKey}`, 1200)) {
+        Commands.look();
       }
 
       this.stopAttackLoop('жертва убита');
@@ -2907,10 +2927,7 @@
       const activeTargetName =
         HuntingState.getNormalizedActiveOrQueuedTarget(hunting);
 
-      if (
-        ctx.normalized.includes(activeTargetName) &&
-        TEXT_PATTERNS.combat.corpseSuffix.test(ctx.raw)
-      ) {
+      if (this.isCorpseLineForTarget(ctx, activeTargetName)) {
         this.onTargetKilled();
         return;
       }
@@ -2932,6 +2949,50 @@
         huntingLog.warn('>>> Вы погибли.');
         this.stop('персонаж погиб');
       }
+    },
+
+    handleLootingText(ctx) {
+      const hunting = Store.hunting();
+      const activeTargetName =
+        HuntingState.getNormalizedActiveOrQueuedTarget(hunting);
+
+      if (!activeTargetName) {
+        return;
+      }
+
+      this.logPipeline('handleLootingText', { text: ctx.raw });
+
+      if (this.isCorpseLineForTarget(ctx, activeTargetName)) {
+        if (
+          ActionGate.allow(
+            `hunting:reloot:${activeTargetName}:${hunting.lootItem}`,
+            800
+          )
+        ) {
+          huntingLog.info(
+            `>>> Обнаружен труп ${hunting.activeTarget} во время лута, повторяю подбор.`
+          );
+          Commands.lootAll(hunting.lootItem);
+        }
+
+        return;
+      }
+
+      const matchedTarget = this.getMatchedTargetFromText(ctx);
+
+      if (!matchedTarget || !this.isTargetVisibleLine(ctx, matchedTarget)) {
+        return;
+      }
+
+      huntingLog.info(
+        `>>> Во время лута обнаружена живая цель ${HuntingState.getDisplayTarget(hunting, matchedTarget)}, продолжаю бой.`
+      );
+
+      Store.update('hunting', nextHunting => {
+        HuntingState.setActiveTarget(nextHunting, matchedTarget);
+      });
+
+      this.engageCombat(Store.hunting().activeTarget);
     },
     extractInlinePathCode(ctx) {
       const hunting = Store.hunting();
@@ -2977,6 +3038,11 @@
 
       if (hunting.status === 'fighting') {
         this.handleCombatText(ctx);
+        return;
+      }
+
+      if (hunting.status === 'looting') {
+        this.handleLootingText(ctx);
         return;
       }
 
