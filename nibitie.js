@@ -2669,7 +2669,7 @@
       }
 
       const rawLocation = ctx.raw.slice(match.index + match[0].length).trim();
-      const displayLocation = rawLocation.replace(/^[\s.,:;!?-]+/, '').trim();
+      const displayLocation = rawLocation.replace(/^[\s.,:;!?]+/, '').trim();
       const normalizedLocation = HuntingState.normalizeValue(displayLocation);
 
       return {
