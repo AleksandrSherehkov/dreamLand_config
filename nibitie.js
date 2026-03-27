@@ -228,6 +228,13 @@
       cantFight: /вы не можете сражаться/i,
       death: /вы умерли/i,
       corpseSuffix: /уже труп/i,
+      blinded:
+        /ты ослеплен(?:а)?|твои глаза слезятся от попавшего в них дыма\.\.\. и ты ничего не видишь!|твои глаза слезятся из-за дыма, и ты ничего не видишь\.?/i,
+      cannotSee:
+        /ты не можешь видеть вещи|ты ничего не видишь из-за пыли|ты не видишь ничего подобного здесь|твои глаза слезятся из-за дыма, и ты ничего не видишь\.?/i,
+      visionRestored:
+        /ты наконец протираешь глаза от попавшей туда грязи|твои глаза перестают слезиться от дыма\.?/i,
+      killExp: /ты получаешь .* опыта за убийство /i,
     },
     login: {
       namePrompt: /как твое имя, странник\?/i,
@@ -443,6 +450,8 @@
       resolvedPathCode: '',
       pathBlockLines: [],
       inspectFallbackPathCode: '',
+      visionObscured: false,
+      pendingLootRetry: false,
       cycleCount: 0,
     };
     return initialState;
@@ -907,6 +916,8 @@
         hunting.pathBlockLines = initialHuntingState.pathBlockLines;
         hunting.inspectFallbackPathCode =
           initialHuntingState.inspectFallbackPathCode;
+        hunting.visionObscured = initialHuntingState.visionObscured;
+        hunting.pendingLootRetry = initialHuntingState.pendingLootRetry;
       });
 
       TimerManager.clear('huntingPathBlock');
@@ -2561,6 +2572,17 @@
       huntingLog.info(`>>> Жертва ${activeTarget} мертва!`);
       Store.setHuntingStatus('looting', `лутание: ${hunting.lootItem}`);
 
+      if (hunting.visionObscured) {
+        Store.update('hunting', nextHunting => {
+          nextHunting.pendingLootRetry = true;
+        });
+        this.stopAttackLoop('жертва убита во время слепоты');
+        huntingLog.info(
+          '>>> Во время лута персонаж ослеплен, жду восстановления зрения для повторного подбора.'
+        );
+        return;
+      }
+
       if (
         ActionGate.allow(`hunting:loot:${lootKey}:${hunting.lootItem}`, 1500)
       ) {
@@ -2572,6 +2594,35 @@
       }
 
       this.stopAttackLoop('жертва убита');
+    },
+
+    retryLootAfterVisionRestored(reason = 'зрение восстановлено') {
+      const hunting = Store.hunting();
+
+      if (hunting.status !== 'looting') {
+        return false;
+      }
+
+      const activeTarget = HuntingState.getActiveOrQueuedTarget(hunting);
+      const lootKey = HuntingState.normalizeValue(activeTarget);
+
+      Store.update('hunting', nextHunting => {
+        nextHunting.pendingLootRetry = false;
+      });
+
+      huntingLog.info(`>>> Повторяю подбор лута: ${reason}`);
+
+      if (
+        ActionGate.allow(`hunting:loot:${lootKey}:${hunting.lootItem}`, 300)
+      ) {
+        Commands.lootAll(hunting.lootItem);
+      }
+
+      if (ActionGate.allow(`hunting:loot-look:${lootKey}`, 300)) {
+        Commands.look();
+      }
+
+      return true;
     },
 
     detectHuntingQuest(ctx) {
@@ -2924,12 +2975,43 @@
       const activeTargetName =
         HuntingState.getNormalizedActiveOrQueuedTarget(hunting);
 
+      if (TEXT_PATTERNS.combat.blinded.test(ctx.raw)) {
+        Store.update('hunting', nextHunting => {
+          nextHunting.visionObscured = true;
+        });
+        huntingLog.warn(
+          '>>> Персонаж ослеплен, временно игнорирую потерю видимости цели.'
+        );
+      }
+
+      if (TEXT_PATTERNS.combat.visionRestored.test(ctx.raw)) {
+        Store.update('hunting', nextHunting => {
+          nextHunting.visionObscured = false;
+        });
+
+        if (Store.hunting().pendingLootRetry) {
+          this.retryLootAfterVisionRestored();
+        }
+      }
+
       if (this.isCorpseLineForTarget(ctx, activeTargetName)) {
         this.onTargetKilled();
         return;
       }
 
+      if (TEXT_PATTERNS.combat.killExp.test(ctx.raw)) {
+        this.onTargetKilled();
+        return;
+      }
+
       if (TEXT_PATTERNS.combat.targetMissing.test(ctx.raw)) {
+        if (hunting.visionObscured) {
+          huntingLog.info(
+            '>>> Цель временно не видна из-за слепоты, продолжаю ждать исход боя.'
+          );
+          return;
+        }
+
         huntingLog.warn('>>> Текущая цель недоступна.');
         huntingLog.debug('>>> lowerText:', ctx.normalized);
         this.onTargetMissing('цель пропала или недоступна в бою');
@@ -2958,6 +3040,39 @@
       }
 
       this.logPipeline('handleLootingText', { text: ctx.raw });
+
+      if (TEXT_PATTERNS.combat.blinded.test(ctx.raw)) {
+        Store.update('hunting', nextHunting => {
+          nextHunting.visionObscured = true;
+          nextHunting.pendingLootRetry = true;
+        });
+        huntingLog.warn(
+          '>>> Ослепление во время лута, откладываю подбор до восстановления зрения.'
+        );
+        return;
+      }
+
+      if (TEXT_PATTERNS.combat.cannotSee.test(ctx.raw)) {
+        Store.update('hunting', nextHunting => {
+          nextHunting.visionObscured = true;
+          nextHunting.pendingLootRetry = true;
+        });
+        huntingLog.info(
+          '>>> Лут временно недоступен из-за слепоты, жду восстановления зрения.'
+        );
+        return;
+      }
+
+      if (TEXT_PATTERNS.combat.visionRestored.test(ctx.raw)) {
+        Store.update('hunting', nextHunting => {
+          nextHunting.visionObscured = false;
+        });
+
+        if (hunting.pendingLootRetry) {
+          this.retryLootAfterVisionRestored();
+        }
+        return;
+      }
 
       if (this.isCorpseLineForTarget(ctx, activeTargetName)) {
         if (
