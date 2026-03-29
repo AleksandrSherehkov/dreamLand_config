@@ -48,6 +48,10 @@
       storageKey: 'mudBot.loginCredentials',
     },
 
+    player: {
+      className: 'маг',
+    },
+
     commands: {
       brewStartText: 'сказ варить',
       brewStopText: 'сказ стоп',
@@ -87,6 +91,10 @@
 
     hunting: {
       defaultAttackCommand: 'к утеч',
+      defaultAttackCommandsByClass: {
+        mage: 'к утеч',
+        thief: 'к убить {target}',
+      },
       defaultTarget: 'рок-менестрель',
       defaultLoot: 'листовка',
       attackIntervalMs: 3000,
@@ -201,6 +209,61 @@
 
   const DEBUG_MODE = CONFIG.debug;
   const PREVIOUS_MUD_BOT = globalThis.mudBot;
+  const PLAYER_CLASS_ALIASES = {
+    маг: 'mage',
+    mage: 'mage',
+    wizard: 'mage',
+    вор: 'thief',
+    thief: 'thief',
+    rogue: 'thief',
+  };
+  const ATTACK_TARGET_PLACEHOLDERS = [
+    '{target}',
+    '${#sym:defaultTarget}',
+    '${#sym:defaultTarget }',
+  ];
+
+  function normalizePlayerClass(playerClass) {
+    return PLAYER_CLASS_ALIASES[
+      String(playerClass ?? '')
+        .trim()
+        .toLowerCase()
+    ];
+  }
+
+  function getDefaultAttackCommand() {
+    const normalizedPlayerClass = normalizePlayerClass(CONFIG.player.className);
+
+    return (
+      CONFIG.hunting.defaultAttackCommandsByClass?.[normalizedPlayerClass] ||
+      CONFIG.hunting.defaultAttackCommand
+    );
+  }
+
+  function formatAttackCommand(command, target) {
+    const normalizedCommand = String(command ?? '').trim();
+    const normalizedTarget = HuntingState.toDisplayValue(target);
+
+    if (!normalizedCommand) {
+      return normalizedTarget;
+    }
+
+    const templatedCommand = ATTACK_TARGET_PLACEHOLDERS.reduce(
+      (currentCommand, placeholder) =>
+        currentCommand.includes(placeholder)
+          ? currentCommand.replaceAll(placeholder, normalizedTarget)
+          : currentCommand,
+      normalizedCommand
+    );
+
+    if (templatedCommand !== normalizedCommand) {
+      return templatedCommand.trim();
+    }
+
+    return normalizedTarget
+      ? `${normalizedCommand} ${normalizedTarget}`
+      : normalizedCommand;
+  }
 
   function escapeRegExp(str) {
     return String(str).replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
@@ -438,7 +501,7 @@
     const initialState = {
       status: 'idle',
       phase: 'primary',
-      attackCommand: CONFIG.hunting.defaultAttackCommand,
+      attackCommand: getDefaultAttackCommand(),
       targetQueue: [target],
       normalizedTargetQueue: [normalizedTarget],
       activeTargetIndex: 0,
@@ -1425,7 +1488,7 @@
 
     attack(target, attackCommand) {
       const finalAttackCommand = attackCommand || Store.hunting().attackCommand;
-      this.send(`${finalAttackCommand} ${target}`);
+      this.send(formatAttackCommand(finalAttackCommand, target));
     },
 
     wearWeapon(weapon) {
@@ -1521,6 +1584,7 @@
         'Примеры:',
         '/attack к вред',
         '/attack к утеч',
+        '/attack к убить {target}',
       ];
     },
 
