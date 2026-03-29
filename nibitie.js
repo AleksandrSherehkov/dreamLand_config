@@ -49,7 +49,9 @@
     },
 
     player: {
-      className: 'маг',
+      name: 'небытие',
+      petName: 'тур',
+      className: 'вор',
     },
 
     commands: {
@@ -64,7 +66,16 @@
       runPrefix: 'бег',
       scan: 'scan',
       drink: 'колдов родн |пить род',
+      drinkCommandsByClass: {
+        cleric: 'колдов родн |пить род',
+        thief: 'приказ {petName} колдов родн |пить род',
+      },
       foodPrefix: 'колдов сотворить пищу |есть',
+      foodPrefixesByClass: {
+        cleric: 'колдов сотворить пищу |есть',
+        thief:
+          'приказ {petName} колдов сотворить пищу |приказ {petName} дать {item} {playerName}|есть {item}',
+      },
       sleepPrefix: 'спать',
     },
 
@@ -91,9 +102,13 @@
 
     hunting: {
       defaultAttackCommand: 'к утеч',
+      openingAttackCommand: '',
       defaultAttackCommandsByClass: {
-        mage: 'к утеч',
-        thief: 'к убить {target}',
+        cleric: 'к утеч',
+        thief: 'убить {target}',
+      },
+      openingAttackCommandsByClass: {
+        thief: 'зарезать {target}',
       },
       defaultTarget: 'рок-менестрель',
       defaultLoot: 'листовка',
@@ -153,47 +168,57 @@
     },
 
     buffs: [
-      { prop: 'pro', value: 's', command: 'к аура' },
-      { prop: 'pro', value: 'g', command: 'c protection good' },
-      { prop: 'enh', value: 'b', command: 'к благословение' },
-      { prop: 'pro', value: 'S', command: 'c shield' },
-      { prop: 'det', value: 'i', command: 'c detect invis' },
+      // { prop: 'pro', value: 's', command: 'к аура' },
+      // { prop: 'pro', value: 'g', command: 'c protection good' },
+      // { prop: 'enh', value: 'b', command: 'к благословение' },
+      {
+        prop: 'pro',
+        value: 'S',
+        command: 'приказ {petName} к щит {playerName}',
+      },
+      {
+        prop: 'enh',
+        value: 'b',
+        command: 'приказ {petName} к благословение {playerName}',
+      },
+      {
+        prop: 'pro',
+        value: 'a',
+        command: 'приказ {petName} к броня {playerName}',
+      },
+      // { prop: 'det', value: 'r', command: 'приказ {petName} к infravision {playerName}' },
+      // { prop: 'pro', value: 'S', command: 'c shield' },
+      // { prop: 'det', value: 'i', command: 'c detect invis' },
       // { prop: 'trv', value: 'i', command: 'c invisibility' },
       // { prop: 'det', value: 'r', command: 'c infravision' },
-
       // { prop: 'enh', value: 'b', command: 'приказ крыс к благословение без' },
       // { prop: 'enh', value: 'B', command: 'к благость' },
-      { prop: 'trv', value: 'f', command: 'к полет' },
-
-      // { prop: 'pro', value: 'S', command: 'приказ крыс c shield без' },
-      { prop: 'enh', value: 'l', command: 'c learning' },
-      { prop: 'enh', value: 'g', command: 'c giant' },
-      { prop: 'pro', value: 'p', command: "c 'prot shield'" },
-      { prop: 'det', value: 'm', command: 'c detect magic' },
+      // { prop: 'trv', value: 'f', command: 'к полет' },
+      // { prop: 'enh', value: 'l', command: 'c learning' },
+      // { prop: 'enh', value: 'g', command: 'c giant' },
+      // { prop: 'pro', value: 'p', command: "c 'prot shield'" },
+      // { prop: 'det', value: 'm', command: 'c detect magic' },
       // { prop: 'enh', value: 'h', command: 'c haste' },
-      { prop: 'trv', value: 'm', command: 'c mental block' },
-      { prop: 'pro', value: 'k', command: 'c stone skin' },
+      // { prop: 'trv', value: 'm', command: 'c mental block' },
+      // { prop: 'pro', value: 'k', command: 'c stone skin' },
       // { prop: 'pro', value: 'z', command: 'c stardust' },
-      // { prop: 'pro', value: 's', command: 'приказ крыс к sanctuary без' },
-      { prop: 'det', value: 'w', command: 'c improved detect' },
-      { prop: 'pro', value: 'D', command: 'c dragon skin' },
-      { prop: 'pro', value: 'h', command: 'c protection heat' },
-      { prop: 'pro', value: 'a', command: 'c armor' },
-      // { prop: 'pro', value: 'a', command: 'приказ крыс c armor без' },
-      { prop: 'pro', value: 'A', command: 'c enhanced armor' },
+      // { prop: 'det', value: 'w', command: 'c improved detect' },
+      // { prop: 'pro', value: 'D', command: 'c dragon skin' },
+      // { prop: 'pro', value: 'h', command: 'c protection heat' },
+      // { prop: 'pro', value: 'a', command: 'c armor' },
+      // { prop: 'pro', value: 'A', command: 'c enhanced armor' },
       // { prop: 'enh', value: 'm', command: 'c magic concentrate' },
       // { prop: 'pro', value: 'm', command: 'c spell resistance' },
       // { prop: 'enh', value: 'c', command: 'c inaction' },
       // { prop: 'pro', value: 'l', command: 'c love potion' },
       // { prop: 'pro', value: 'a', command: 'c astral projection' },
       // { prop: 'pro', value: 'b', command: 'c broom ritual' },
-
       // { prop: 'pro', value: 'e', command: 'c protection evil' },
       // { prop: 'det', value: 'o', command: 'к диагностика' },
-      { prop: 'det', value: 'e', command: 'к обнаружить зло' },
-      // { prop: 'trv', value: 's', command: 'красться' },
-      // { prop: 'det', value: 'h', command: 'приглядеться' },
-      { prop: 'det', value: 'g', command: 'к обнаружить добро' },
+      // { prop: 'det', value: 'e', command: 'к обнаружить зло' },
+      { prop: 'trv', value: 's', command: 'красться' },
+      { prop: 'det', value: 'h', command: 'приглядеться' },
+      // { prop: 'det', value: 'g', command: 'к обнаружить добро' },
     ],
   };
 
@@ -210,18 +235,44 @@
   const DEBUG_MODE = CONFIG.debug;
   const PREVIOUS_MUD_BOT = globalThis.mudBot;
   const PLAYER_CLASS_ALIASES = {
-    маг: 'mage',
-    mage: 'mage',
-    wizard: 'mage',
+    воин: 'warrior',
+    warrior: 'warrior',
+    рейнджер: 'ranger',
+    ranger: 'ranger',
+    самурай: 'samurai',
+    samurai: 'samurai',
     вор: 'thief',
     thief: 'thief',
-    rogue: 'thief',
+    ниндзя: 'ninja',
+    ninja: 'ninja',
+    паладин: 'paladin',
+    paladin: 'paladin',
+    'анти-паладин': 'anti-paladin',
+    'anti-paladin': 'anti-paladin',
+    вампир: 'vampire',
+    vampire: 'vampire',
+    клерик: 'cleric',
+    cleric: 'cleric',
+    ведьма: 'witch',
+    witch: 'witch',
+    колдун: 'warlock',
+    warlock: 'warlock',
+    друид: 'druid',
+    druid: 'druid',
+    некромант: 'necromancer',
+    necromancer: 'necromancer',
   };
   const ATTACK_TARGET_PLACEHOLDERS = [
     '{target}',
     '${#sym:defaultTarget}',
     '${#sym:defaultTarget }',
   ];
+  const COMMAND_TEMPLATE_PLACEHOLDERS = {
+    target: ATTACK_TARGET_PLACEHOLDERS,
+    item: ['{item}', '${item}'],
+    petName: ['{petName}', '${petName}'],
+    playerName: ['{playerName}', '${playerName}'],
+  };
 
   function normalizePlayerClass(playerClass) {
     return PLAYER_CLASS_ALIASES[
@@ -240,29 +291,78 @@
     );
   }
 
-  function formatAttackCommand(command, target) {
+  function getOpeningAttackCommand() {
+    const normalizedPlayerClass = normalizePlayerClass(CONFIG.player.className);
+
+    return (
+      CONFIG.hunting.openingAttackCommandsByClass?.[normalizedPlayerClass] ||
+      CONFIG.hunting.openingAttackCommand
+    );
+  }
+
+  function getClassAwareCommand(byClassConfig, fallbackCommand) {
+    const normalizedPlayerClass = normalizePlayerClass(CONFIG.player.className);
+
+    return byClassConfig?.[normalizedPlayerClass] || fallbackCommand;
+  }
+
+  function getPlayerName() {
+    return HuntingState.toDisplayValue(CONFIG.player.name);
+  }
+
+  function getPetName() {
+    return HuntingState.toDisplayValue(CONFIG.player.petName);
+  }
+
+  function getCommandTemplateReplacements(replacements = {}) {
+    return {
+      petName: getPetName(),
+      playerName: getPlayerName(),
+      ...replacements,
+    };
+  }
+
+  function formatCommandTemplate(command, replacements = {}, options = {}) {
     const normalizedCommand = String(command ?? '').trim();
-    const normalizedTarget = HuntingState.toDisplayValue(target);
+    const { appendKey = '' } = options;
 
     if (!normalizedCommand) {
-      return normalizedTarget;
+      return '';
     }
 
-    const templatedCommand = ATTACK_TARGET_PLACEHOLDERS.reduce(
-      (currentCommand, placeholder) =>
-        currentCommand.includes(placeholder)
-          ? currentCommand.replaceAll(placeholder, normalizedTarget)
-          : currentCommand,
-      normalizedCommand
-    );
+    let formattedCommand = normalizedCommand;
+    let didReplaceTemplate = false;
 
-    if (templatedCommand !== normalizedCommand) {
-      return templatedCommand.trim();
+    Object.entries(replacements).forEach(([key, value]) => {
+      const normalizedValue = HuntingState.toDisplayValue(value);
+      const placeholders = COMMAND_TEMPLATE_PLACEHOLDERS[key] || [];
+
+      placeholders.forEach(placeholder => {
+        if (!formattedCommand.includes(placeholder)) {
+          return;
+        }
+
+        formattedCommand = formattedCommand.replaceAll(
+          placeholder,
+          normalizedValue
+        );
+        didReplaceTemplate = true;
+      });
+    });
+
+    if (didReplaceTemplate) {
+      return formattedCommand.trim();
     }
 
-    return normalizedTarget
-      ? `${normalizedCommand} ${normalizedTarget}`
+    const appendValue = HuntingState.toDisplayValue(replacements[appendKey]);
+
+    return appendValue
+      ? `${normalizedCommand} ${appendValue}`
       : normalizedCommand;
+  }
+
+  function formatAttackCommand(command, target) {
+    return formatCommandTemplate(command, { target }, { appendKey: 'target' });
   }
 
   function escapeRegExp(str) {
@@ -502,6 +602,8 @@
       status: 'idle',
       phase: 'primary',
       attackCommand: getDefaultAttackCommand(),
+      openingAttackCommand: getOpeningAttackCommand(),
+      openingAttackUsed: false,
       targetQueue: [target],
       normalizedTargetQueue: [normalizedTarget],
       activeTargetIndex: 0,
@@ -981,6 +1083,7 @@
           initialHuntingState.inspectFallbackPathCode;
         hunting.visionObscured = initialHuntingState.visionObscured;
         hunting.pendingLootRetry = initialHuntingState.pendingLootRetry;
+        hunting.openingAttackUsed = initialHuntingState.openingAttackUsed;
       });
 
       TimerManager.clear('huntingPathBlock');
@@ -1047,6 +1150,7 @@
 
       this.update('hunting', hunting => {
         hunting.attackCommand = initialHuntingState.attackCommand;
+        hunting.openingAttackCommand = initialHuntingState.openingAttackCommand;
         hunting.lootItem = initialHuntingState.lootItem;
         HuntingState.setTargets(hunting, initialHuntingState.targetQueue);
       });
@@ -1465,14 +1569,34 @@
     },
 
     drink() {
-      this.send(CONFIG.commands.drink);
+      this.send(
+        formatCommandTemplate(
+          getClassAwareCommand(
+            CONFIG.commands.drinkCommandsByClass,
+            CONFIG.commands.drink
+          ),
+          getCommandTemplateReplacements()
+        )
+      );
     },
 
     eat(item) {
+      const finalItem = HuntingState.toDisplayValue(
+        item || Store.general().foodItem
+      );
+      const foodCommand = getClassAwareCommand(
+        CONFIG.commands.foodPrefixesByClass,
+        CONFIG.commands.foodPrefix
+      );
+
       this.send(
-        item
-          ? `${CONFIG.commands.foodPrefix} ${item}`
-          : CONFIG.commands.foodPrefix
+        formatCommandTemplate(
+          foodCommand,
+          getCommandTemplateReplacements({ item: finalItem }),
+          {
+            appendKey: 'item',
+          }
+        )
       );
     },
 
@@ -1588,6 +1712,16 @@
       ];
     },
 
+    getOpeningAttackHelpLines() {
+      return [
+        'Формат: /openingattack команда',
+        'Примеры:',
+        '/openingattack зарезать {target}',
+        '/openingattack к утеч',
+        '/openingattack off',
+      ];
+    },
+
     getWeaponHelpLines() {
       return [
         'Формат: /weapon оружие',
@@ -1670,6 +1804,7 @@
         `Текущая цель: ${currentTarget}`,
         `Очередь целей: ${targetQueueText}`,
         `Лут: ${hunting.lootItem || 'не задан'}`,
+        `Первый удар: ${hunting.openingAttackCommand || 'выключен'}`,
         `Команда атаки: ${hunting.attackCommand || 'не задана'}`,
         `Тренировка: ${summary.training}, навык = ${training.skillToTrain}, задержка = ${training.skillDelayMs} мс`,
         `Варка: ${summary.brewing}`,
@@ -1827,6 +1962,33 @@
 
         Store.patch('hunting.attackCommand', value);
         const message = `Команда атаки: ${Store.hunting().attackCommand}`;
+        echo(message);
+        commandsLog.info(`>>> ${message}\n`);
+      },
+
+      '/openingattack': args => {
+        const hunting = Store.hunting();
+        const value = args.trim();
+        const helpLines = Commands.getOpeningAttackHelpLines();
+
+        if (!value) {
+          const message = `Команда первого удара: ${hunting.openingAttackCommand || 'выключена'}`;
+          echo(message);
+          commandsLog.info(`>>> ${message}\n`);
+          Commands.showHelpLines(helpLines);
+          return;
+        }
+
+        if (['off', 'none', 'reset'].includes(value.toLowerCase())) {
+          Store.patch('hunting.openingAttackCommand', '');
+          const message = 'Команда первого удара выключена';
+          echo(message);
+          commandsLog.info(`>>> ${message}\n`);
+          return;
+        }
+
+        Store.patch('hunting.openingAttackCommand', value);
+        const message = `Команда первого удара: ${Store.hunting().openingAttackCommand}`;
         echo(message);
         commandsLog.info(`>>> ${message}\n`);
       },
@@ -2049,7 +2211,7 @@
       );
       const storedCredentials = this.getStoredCredentials();
       const configCredentials = this.normalizeCredentials({
-        characterName: CONFIG.login.characterName,
+        characterName: CONFIG.login.characterName || getPlayerName(),
         password: CONFIG.login.password,
       });
 
@@ -2997,6 +3159,9 @@
       this.logPipeline('engageCombat', { targetName });
       huntingLog.info(`>>> Атакую жертву: ${targetName}`);
       Store.setHuntingStatus('fighting', `атака цели: ${targetName}`);
+      Store.update('hunting', hunting => {
+        hunting.openingAttackUsed = false;
+      });
 
       TimerManager.clear('attack');
       this.continueAttacking();
@@ -3015,10 +3180,26 @@
       }
 
       const activeTarget = HuntingState.getActiveOrQueuedTarget(hunting);
+      const attackCommand =
+        !hunting.openingAttackUsed && hunting.openingAttackCommand
+          ? hunting.openingAttackCommand
+          : hunting.attackCommand;
 
-      this.logPipeline('continueAttacking', { activeTarget });
-      huntingLog.debug('>>> continueAttacking: отправляю атаку', activeTarget);
-      Commands.attack(activeTarget, hunting.attackCommand);
+      this.logPipeline('continueAttacking', {
+        activeTarget,
+        attackCommand,
+        openingAttackUsed: hunting.openingAttackUsed,
+      });
+      huntingLog.debug('>>> continueAttacking: отправляю атаку', {
+        activeTarget,
+        attackCommand,
+      });
+      Commands.attack(activeTarget, attackCommand);
+      if (!hunting.openingAttackUsed && hunting.openingAttackCommand) {
+        Store.update('hunting', nextHunting => {
+          nextHunting.openingAttackUsed = true;
+        });
+      }
 
       TimerManager.set(
         'attack',
@@ -3290,7 +3471,9 @@
         const promptProp = prompt[prop];
 
         if (promptProp === 'none' || !promptProp?.a?.includes(value)) {
-          Commands.send(command);
+          Commands.send(
+            formatCommandTemplate(command, getCommandTemplateReplacements())
+          );
         }
       });
     },
