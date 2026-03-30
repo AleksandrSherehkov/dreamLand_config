@@ -29,6 +29,7 @@
       typhoenText: 'Тайфоэн',
       speechText: 'Внимание! Тайфоэн!',
       weaponDropSpeechText: 'Оружие выбили!',
+      shieldDropSpeechText: 'Щит выбили!',
       speechLang: 'ru-RU',
       speechDelayMs: 100,
     },
@@ -152,7 +153,8 @@
 
     general: {
       defaultDoorToBash: 'n',
-      defaultWeapon: 'молоток',
+      defaultWeapon: 'кинжал',
+      defaultShield: 'щит из призматической чешуи',
       defaultFoodItem: 'манна',
       defaultSleepItem: 'кресло',
     },
@@ -171,6 +173,11 @@
       // { prop: 'pro', value: 's', command: 'к аура' },
       // { prop: 'pro', value: 'g', command: 'c protection good' },
       // { prop: 'enh', value: 'b', command: 'к благословение' },
+      {
+        prop: 'pro',
+        value: 's',
+        command: 'приказ {petName} к аур {playerName}',
+      },
       {
         prop: 'pro',
         value: 'S',
@@ -414,8 +421,7 @@
     },
     events: {
       typhoenMention: new RegExp(escapeRegExp(CONFIG.alerts.typhoenText), 'i'),
-      weaponDrop:
-        /ВЫБИЛ.? у тебя .*, и он.? пада.?т .*!|От боли ты роняешь .*\!/i,
+      itemDrop: /ВЫБИЛ.? у тебя .*, и он.? пада.?т .*!|От боли ты роняешь .*!/i,
       hunger: /Ты хочешь есть\./,
       thirst: /Ты хочешь пить\./,
     },
@@ -647,6 +653,7 @@
       lastCast: '',
       doorToBash: CONFIG.general.defaultDoorToBash,
       weapon: CONFIG.general.defaultWeapon,
+      shield: CONFIG.general.defaultShield,
       foodItem: CONFIG.general.defaultFoodItem,
       sleepItem: CONFIG.general.defaultSleepItem,
       isActionLocked: false,
@@ -1164,6 +1171,7 @@
       this.update('general', general => {
         general.doorToBash = initialGeneralState.doorToBash;
         general.weapon = initialGeneralState.weapon;
+        general.shield = initialGeneralState.shield;
         general.foodItem = initialGeneralState.foodItem;
         general.sleepItem = initialGeneralState.sleepItem;
       });
@@ -1619,6 +1627,10 @@
       this.send(`взять ${weapon}|надеть ${weapon}`);
     },
 
+    wearShield(shield) {
+      this.send(`взять ${shield}|надеть ${shield}`);
+    },
+
     bash(direction) {
       this.send(`выбить ${direction}`);
     },
@@ -1731,6 +1743,15 @@
       ];
     },
 
+    getShieldHelpLines() {
+      return [
+        'Формат: /shield щит',
+        'Примеры:',
+        '/shield щит из призматической чешуи',
+        '/shield башенный щит',
+      ];
+    },
+
     getFoodHelpLines() {
       return ['Формат: /food еда', 'Примеры:', '/food манна', '/food хлеб'];
     },
@@ -1806,6 +1827,8 @@
         `Лут: ${hunting.lootItem || 'не задан'}`,
         `Первый удар: ${hunting.openingAttackCommand || 'выключен'}`,
         `Команда атаки: ${hunting.attackCommand || 'не задана'}`,
+        `Оружие: ${Store.general().weapon || 'не задано'}`,
+        `Щит: ${Store.general().shield || 'не задан'}`,
         `Тренировка: ${summary.training}, навык = ${training.skillToTrain}, задержка = ${training.skillDelayMs} мс`,
         `Варка: ${summary.brewing}`,
         `Парсер: ${summary.parser}`,
@@ -2008,6 +2031,25 @@
 
         Store.patch('general.weapon', value);
         const message = `Твое оружие теперь ${Store.general().weapon}`;
+        echo(message);
+        commandsLog.info(`>>> ${message}\n`);
+      },
+
+      '/shield': args => {
+        const general = Store.general();
+        const value = args.trim();
+        const helpLines = Commands.getShieldHelpLines();
+
+        if (!value) {
+          const message = `Текущий щит: ${general.shield}`;
+          echo(message);
+          commandsLog.info(`>>> ${message}\n`);
+          Commands.showHelpLines(helpLines);
+          return;
+        }
+
+        Store.patch('general.shield', value);
+        const message = `Твой щит теперь ${Store.general().shield}`;
         echo(message);
         commandsLog.info(`>>> ${message}\n`);
       },
@@ -3509,6 +3551,10 @@
     weaponDrop() {
       this.speak(CONFIG.alerts.weaponDropSpeechText);
     },
+
+    shieldDrop() {
+      this.speak(CONFIG.alerts.shieldDropSpeechText);
+    },
   };
 
   const EventRouter = {
@@ -3606,12 +3652,37 @@
         },
       },
       {
-        pattern: TEXT_PATTERNS.events.weaponDrop,
-        action: () => {
+        pattern: TEXT_PATTERNS.events.itemDrop,
+        action: ctx => {
           const general = Store.general();
+          const shield = HuntingState.normalizeValue(general.shield);
+
+          if (!shield || !ctx.normalized.includes(shield)) {
+            return false;
+          }
+
+          if (!ActionGate.allow('event:shield-drop', 1500)) {
+            return true;
+          }
+
+          eventLog.info('>>> Подбираю щит с пола, очищаю буфер команд.');
+          AlertModule.shieldDrop();
+          Commands.clearBuffer();
+          Commands.wearShield(general.shield);
+        },
+      },
+      {
+        pattern: TEXT_PATTERNS.events.itemDrop,
+        action: ctx => {
+          const general = Store.general();
+          const weapon = HuntingState.normalizeValue(general.weapon);
+
+          if (!weapon || !ctx.normalized.includes(weapon)) {
+            return false;
+          }
 
           if (!ActionGate.allow('event:weapon-drop', 1500)) {
-            return;
+            return true;
           }
 
           eventLog.info('>>> Подбираю оружие с пола, очищаю буфер команд.');
@@ -3656,8 +3727,11 @@
       // Intentional: one incoming line executes at most one generic trigger.
       for (const { pattern, action } of this.triggers) {
         if (pattern.test(ctx.raw)) {
-          action();
-          return true;
+          const handled = action(ctx);
+
+          if (handled !== false) {
+            return true;
+          }
         }
       }
 
