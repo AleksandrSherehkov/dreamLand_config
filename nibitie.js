@@ -109,7 +109,7 @@
         thief: 'убить {target}',
       },
       openingAttackCommandsByClass: {
-        thief: 'зарезать {target}',
+        thief: 'оглушить {target}|зарезать {target}',
       },
       defaultTarget: 'рок-менестрель',
       defaultLoot: 'листовка',
@@ -192,6 +192,11 @@
         prop: 'pro',
         value: 'a',
         command: 'приказ {petName} к броня {playerName}',
+      },
+      {
+        prop: 'enh',
+        value: 'l',
+        command: 'приказ {petName} к обуч {playerName}',
       },
       // { prop: 'det', value: 'r', command: 'приказ {petName} к infravision {playerName}' },
       // { prop: 'pro', value: 'S', command: 'c shield' },
@@ -311,6 +316,13 @@
     const normalizedPlayerClass = normalizePlayerClass(CONFIG.player.className);
 
     return byClassConfig?.[normalizedPlayerClass] || fallbackCommand;
+  }
+
+  function splitCommandSequence(command) {
+    return String(command ?? '')
+      .split('|')
+      .map(step => step.trim())
+      .filter(Boolean);
   }
 
   function getPlayerName() {
@@ -610,6 +622,7 @@
       attackCommand: getDefaultAttackCommand(),
       openingAttackCommand: getOpeningAttackCommand(),
       openingAttackUsed: false,
+      openingAttackStepIndex: 0,
       targetQueue: [target],
       normalizedTargetQueue: [normalizedTarget],
       activeTargetIndex: 0,
@@ -1091,6 +1104,8 @@
         hunting.visionObscured = initialHuntingState.visionObscured;
         hunting.pendingLootRetry = initialHuntingState.pendingLootRetry;
         hunting.openingAttackUsed = initialHuntingState.openingAttackUsed;
+        hunting.openingAttackStepIndex =
+          initialHuntingState.openingAttackStepIndex;
       });
 
       TimerManager.clear('huntingPathBlock');
@@ -1720,7 +1735,7 @@
         'Примеры:',
         '/attack к вред',
         '/attack к утеч',
-        '/attack к убить {target}',
+        '/attack убить {target}',
       ];
     },
 
@@ -1729,6 +1744,7 @@
         'Формат: /openingattack команда',
         'Примеры:',
         '/openingattack зарезать {target}',
+        '/openingattack оглушить {target}|зарезать {target}',
         '/openingattack к утеч',
         '/openingattack off',
       ];
@@ -3203,6 +3219,7 @@
       Store.setHuntingStatus('fighting', `атака цели: ${targetName}`);
       Store.update('hunting', hunting => {
         hunting.openingAttackUsed = false;
+        hunting.openingAttackStepIndex = 0;
       });
 
       TimerManager.clear('attack');
@@ -3222,22 +3239,34 @@
       }
 
       const activeTarget = HuntingState.getActiveOrQueuedTarget(hunting);
-      const attackCommand =
-        !hunting.openingAttackUsed && hunting.openingAttackCommand
-          ? hunting.openingAttackCommand
-          : hunting.attackCommand;
+      const openingAttackSteps = splitCommandSequence(
+        hunting.openingAttackCommand
+      );
+      const openingAttackCommand =
+        !hunting.openingAttackUsed &&
+        hunting.openingAttackStepIndex < openingAttackSteps.length
+          ? openingAttackSteps[hunting.openingAttackStepIndex]
+          : '';
+      const attackCommand = openingAttackCommand || hunting.attackCommand;
 
       this.logPipeline('continueAttacking', {
         activeTarget,
         attackCommand,
         openingAttackUsed: hunting.openingAttackUsed,
+        openingAttackStepIndex: hunting.openingAttackStepIndex,
       });
       huntingLog.debug('>>> continueAttacking: отправляю атаку', {
         activeTarget,
         attackCommand,
       });
       Commands.attack(activeTarget, attackCommand);
-      if (!hunting.openingAttackUsed && hunting.openingAttackCommand) {
+      if (openingAttackCommand) {
+        Store.update('hunting', nextHunting => {
+          nextHunting.openingAttackStepIndex += 1;
+          nextHunting.openingAttackUsed =
+            nextHunting.openingAttackStepIndex >= openingAttackSteps.length;
+        });
+      } else if (!hunting.openingAttackUsed && hunting.openingAttackCommand) {
         Store.update('hunting', nextHunting => {
           nextHunting.openingAttackUsed = true;
         });
