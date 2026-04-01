@@ -106,7 +106,7 @@
       openingAttackCommand: '',
       defaultAttackCommandsByClass: {
         cleric: 'к утеч',
-        thief: 'убить {target}',
+        thief: '',
       },
       openingAttackCommandsByClass: {
         thief: 'оглушить {target}|зарезать {target}',
@@ -154,9 +154,9 @@
     general: {
       defaultDoorToBash: 'n',
       defaultWeapon: 'кинжал',
-      defaultShield: 'щит из призматической чешуи',
+      defaultShield: 'веер',
       defaultFoodItem: 'манна',
-      defaultSleepItem: 'кресло',
+      defaultSleepItem: 'угол',
     },
 
     quickActions: {
@@ -197,6 +197,11 @@
         prop: 'enh',
         value: 'l',
         command: 'приказ {petName} к обуч {playerName}',
+      },
+      {
+        prop: 'enh',
+        value: 'g',
+        command: 'приказ {petName} к гиг {playerName}',
       },
       // { prop: 'det', value: 'r', command: 'приказ {petName} к infravision {playerName}' },
       // { prop: 'pro', value: 'S', command: 'c shield' },
@@ -1736,6 +1741,7 @@
         '/attack к вред',
         '/attack к утеч',
         '/attack убить {target}',
+        '/attack off',
       ];
     },
 
@@ -1996,6 +2002,14 @@
           echo(message);
           commandsLog.info(`>>> ${message}\n`);
           Commands.showHelpLines(helpLines);
+          return;
+        }
+
+        if (['off', 'none', 'reset'].includes(value.toLowerCase())) {
+          Store.patch('hunting.attackCommand', '');
+          const message = 'Команда атаки выключена';
+          echo(message);
+          commandsLog.info(`>>> ${message}\n`);
           return;
         }
 
@@ -3248,6 +3262,18 @@
           ? openingAttackSteps[hunting.openingAttackStepIndex]
           : '';
       const attackCommand = openingAttackCommand || hunting.attackCommand;
+
+      if (!attackCommand) {
+        this.logPipeline('continueAttacking:auto-combat', {
+          activeTarget,
+          openingAttackUsed: hunting.openingAttackUsed,
+          openingAttackStepIndex: hunting.openingAttackStepIndex,
+        });
+        huntingLog.debug(
+          '>>> continueAttacking: ручная команда не задана, полагаюсь на автоатаку игры'
+        );
+        return;
+      }
 
       this.logPipeline('continueAttacking', {
         activeTarget,
