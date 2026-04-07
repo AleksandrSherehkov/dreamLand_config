@@ -51,7 +51,7 @@
 
     player: {
       name: 'небытие',
-      petName: 'тур',
+      petName: 'ослик',
       className: 'вор',
     },
 
@@ -93,8 +93,8 @@
     },
 
     training: {
-      defaultSkill: 'к щит',
-      defaultDelayMs: 4000,
+      defaultSkill: 'к состояние потока',
+      defaultDelayMs: 3500,
       maxSkillCount: 98,
       unlockDelayMs: 300,
       energyWakeUpDelayMs: 25000,
@@ -154,7 +154,7 @@
     general: {
       defaultDoorToBash: 'n',
       defaultWeapon: 'кинжал',
-      defaultShield: 'веер',
+      defaultShield: 'демо',
       defaultFoodItem: 'манна',
       defaultSleepItem: 'угол',
     },
@@ -179,6 +179,11 @@
         command: 'приказ {petName} к аур {playerName}',
       },
       {
+        prop: 'enh',
+        value: 'i',
+        command: 'приказ {petName} к воод',
+      },
+      {
         prop: 'pro',
         value: 'S',
         command: 'приказ {petName} к щит {playerName}',
@@ -186,12 +191,17 @@
       {
         prop: 'enh',
         value: 'b',
-        command: 'приказ {petName} к благословение {playerName}',
+        command: 'приказ {petName} к благ {playerName}',
       },
       {
         prop: 'pro',
         value: 'a',
         command: 'приказ {petName} к броня {playerName}',
+      },
+      {
+        prop: 'pro',
+        value: 'A',
+        command: 'приказ {petName} к улу брон {playerName}',
       },
       {
         prop: 'enh',
@@ -235,6 +245,7 @@
       // { prop: 'det', value: 'e', command: 'к обнаружить зло' },
       { prop: 'trv', value: 's', command: 'красться' },
       { prop: 'det', value: 'h', command: 'приглядеться' },
+      { prop: 'trv', value: 'I', command: 'к дем' },
       // { prop: 'det', value: 'g', command: 'к обнаружить добро' },
     ],
   };
@@ -301,26 +312,45 @@
 
   function getDefaultAttackCommand() {
     const normalizedPlayerClass = normalizePlayerClass(CONFIG.player.className);
+    const defaultAttackCommandsByClass =
+      CONFIG.hunting.defaultAttackCommandsByClass;
 
-    return (
-      CONFIG.hunting.defaultAttackCommandsByClass?.[normalizedPlayerClass] ||
-      CONFIG.hunting.defaultAttackCommand
-    );
+    if (
+      normalizedPlayerClass &&
+      Object.hasOwn(defaultAttackCommandsByClass || {}, normalizedPlayerClass)
+    ) {
+      return defaultAttackCommandsByClass[normalizedPlayerClass];
+    }
+
+    return CONFIG.hunting.defaultAttackCommand;
   }
 
   function getOpeningAttackCommand() {
     const normalizedPlayerClass = normalizePlayerClass(CONFIG.player.className);
+    const openingAttackCommandsByClass =
+      CONFIG.hunting.openingAttackCommandsByClass;
 
-    return (
-      CONFIG.hunting.openingAttackCommandsByClass?.[normalizedPlayerClass] ||
-      CONFIG.hunting.openingAttackCommand
-    );
+    if (
+      normalizedPlayerClass &&
+      Object.hasOwn(openingAttackCommandsByClass || {}, normalizedPlayerClass)
+    ) {
+      return openingAttackCommandsByClass[normalizedPlayerClass];
+    }
+
+    return CONFIG.hunting.openingAttackCommand;
   }
 
   function getClassAwareCommand(byClassConfig, fallbackCommand) {
     const normalizedPlayerClass = normalizePlayerClass(CONFIG.player.className);
 
-    return byClassConfig?.[normalizedPlayerClass] || fallbackCommand;
+    if (
+      normalizedPlayerClass &&
+      Object.hasOwn(byClassConfig || {}, normalizedPlayerClass)
+    ) {
+      return byClassConfig[normalizedPlayerClass];
+    }
+
+    return fallbackCommand;
   }
 
   function splitCommandSequence(command) {
